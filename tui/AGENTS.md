@@ -14,24 +14,23 @@ go run ./cmd/tapass-tui/                          # 运行
 ## 包结构
 
 ```
-cmd/tapass-tui/main.go     # 入口
+cmd/tapass-tui/main.go     # 入口（可选数据库路径参数）
 internal/
   store/                    # 存储抽象层
     store.go                # Store 接口
     local/local.go          # 本地文件存储
   model/                    # 内存数据模型
-    tree.go                 # Node + BuildTree（Key路径→树形结构）
-    tree_test.go
+    listing.go              # ListItem + ListChildren/GetEntryAttrs/ParentPath/IsEntryPath/EntryPath
+    listing_test.go
   tui/                      # Bubble Tea 视图层
-    app.go                  # 主 Model + 窗口路由 + 消息类型
-    welcome.go              # 欢迎/打开/新建数据库
-    mainview.go             # 主界面布局
-    sidebar.go              # 左侧分组树
-    entrylist.go            # 右侧条目列表
-    entrydetail.go          # 条目详情/编辑属性
-    dbconfig.go             # 数据库设置（改密）
+    app.go                  # 主 Model + 窗口路由 + 消息类型（含 PasswordChangedMsg）
+    welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art）
+    mainview.go             # 三栏布局 + vim导航 + TOTP tick管理 + dirty标记
+    panellist.go            # 通用列表面板（分组/条目/属性图标，滚动跟随）
+    entrydetail.go          # 条目详情/编辑属性（单属性视图 + TOTP/Steam TOTP）
+    dbconfig.go             # 数据库设置（改密，成功发 PasswordChangedMsg）
     dialog.go               # 新建条目对话框
-    styles.go               # 共享样式
+    styles.go               # 共享样式（含 TOTP/进度条/dirty 标题样式）
 ```
 
 ## 依赖说明
@@ -69,3 +68,15 @@ internal/
 - vault 包不操作文件系统，文件 I/O 由 store 实现负责（local 使用原子写入）
 - TUI 组件均持有 width/height，通过 SetSize 响应 resize
 - 共享样式定义在 `tui/styles.go`
+- 三栏布局：左(1/4) | 中(1/4) | 右(1/2)，焦点面板橙色边框高亮
+- 左栏=当前级子项，中栏=选中项子项/属性，右栏=选中属性详情
+- 基于 `/` 前缀筛选条目，不构建树形结构（listing.go）
+- vim 导航：h=上一级，j/k=上下，l=下一级；右面板无游标导航
+- 详情面板：标题=属性key，第一栏=修改时间，第二栏=属性值（文本自动换行）
+- TOTP 属性：解析 `otpauth://totp/` URI，支持 secret/digits/period/algorithm(SHA1/SHA256/SHA512)参数
+- Steam TOTP：digits=S 时使用字符表 `23456789BCDFGHJKMNPQRTVWXY` 生成5位字符码
+- TOTP tick 通过 mainview 的 totpActive 标志 + Update 末尾检查启动
+- 列表超长时限制显示高度，选中项自动滚动跟随
+- dirty 标记：数据变更时标题栏变红显示 [未保存]，通过 SetDirty 设置
+- 编辑/删除属性后发送 EntryUpdatedMsg，修改密码成功后发送 PasswordChangedMsg
+- 欢迎页居中排版，TAPASS ASCII art 紫色显示
