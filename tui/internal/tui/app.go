@@ -2,7 +2,6 @@ package tui
 
 import (
 	"github.com/charmbracelet/bubbletea"
-	"github.com/tapass/tapass-tui/internal/model"
 	"github.com/tapass/tapass-tui/internal/store"
 	"github.com/tapass/tapass-tools/vault"
 )
@@ -12,28 +11,24 @@ type WindowState int
 const (
 	StateWelcome WindowState = iota
 	StateMainView
-	StateEntryDetail
 	StateDBConfig
 	StateNewEntry
 )
 
 type AppModel struct {
-	state         WindowState
-	store         store.Store
-	vault         *vault.Vault
-	tree          *model.Node
-	selectedGroup *model.Node
-	selectedEntry *model.Node
-	dbPath        string
+	state   WindowState
+	store   store.Store
+	vault   *vault.Vault
+	entries map[string]vault.Entry
+	dbPath  string
 
-	welcome      WelcomeModel
-	mainview     MainViewModel
-	entrydetail  EntryDetailModel
-	dbconfig     DBConfigModel
-	newEntry     NewEntryDialogModel
-	width        int
-	height       int
-	err          error
+	welcome  WelcomeModel
+	mainview MainViewModel
+	dbconfig DBConfigModel
+	newEntry NewEntryDialogModel
+	width    int
+	height   int
+	err      error
 }
 
 func NewApp(s store.Store) AppModel {
@@ -41,6 +36,12 @@ func NewApp(s store.Store) AppModel {
 		state:   StateWelcome,
 		store:   s,
 		welcome: NewWelcomeModel(),
+	}
+}
+
+func (m *AppModel) SetInitialDBPath(path string) {
+	if path != "" {
+		m.welcome.SetInitialPath(path)
 	}
 }
 
@@ -56,39 +57,42 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m = m.propagateSize()
-		return m, nil
+		switch m.state {
+		case StateWelcome:
+			m.welcome, cmd = m.welcome.Update(msg)
+		case StateMainView:
+			m.mainview, cmd = m.mainview.Update(msg)
+		case StateDBConfig:
+			m.dbconfig, cmd = m.dbconfig.Update(msg)
+		case StateNewEntry:
+			m.newEntry, cmd = m.newEntry.Update(msg)
+		}
+		return m, cmd
 
 	case tea.KeyMsg:
 
 	case OpenVaultMsg:
 		m.vault = msg.Vault
 		m.dbPath = msg.Path
-		m = m.rebuildTree()
+		m.entries = m.vault.List()
 		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.tree, m.selectedGroup, m.width, m.height)
+		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
 		m = m.propagateSize()
 		return m, nil
 
 	case CreateVaultMsg:
 		m.vault = msg.Vault
 		m.dbPath = msg.Path
-		m = m.rebuildTree()
+		m.entries = m.vault.List()
 		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.tree, m.selectedGroup, m.width, m.height)
-		m = m.propagateSize()
-		return m, nil
-
-	case SelectEntryMsg:
-		m.selectedEntry = msg.Node
-		m.state = StateEntryDetail
-		m.entrydetail = NewEntryDetailModel(msg.Node, msg.GroupPath, m.vault)
+		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
 		m = m.propagateSize()
 		return m, nil
 
 	case BackToMainMsg:
 		m.state = StateMainView
-		m = m.rebuildTree()
-		m.mainview = NewMainViewModel(m.tree, m.selectedGroup, m.width, m.height)
+		m.entries = m.vault.List()
+		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
 		m = m.propagateSize()
 		return m, nil
 
@@ -99,42 +103,54 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case EntryUpdatedMsg:
-		m = m.rebuildTree()
+		m.entries = m.vault.List()
+		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
+		m.mainview.SetDirty(true)
 		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.tree, m.selectedGroup, m.width, m.height)
 		m = m.propagateSize()
 		return m, nil
 
 	case OpenNewEntryMsg:
 		m.state = StateNewEntry
-		groupPath := ""
-		if m.selectedGroup != nil {
-			groupPath = m.selectedGroup.Path
+		currentPrefix := ""
+		if m.mainview.entries != nil {
+			currentPrefix = m.mainview.CurrentPrefix()
 		}
-		m.newEntry = NewNewEntryDialog(groupPath, m.vault)
+		m.newEntry = NewNewEntryDialog(currentPrefix, m.vault)
 		m = m.propagateSize()
 		return m, nil
 
 	case NewEntryCreatedMsg:
-		entryNode := model.GetNodeByPath(m.tree, msg.EntryPathPrefix)
-		if entryNode == nil {
-			entryNode = model.NewNode(msg.EntryPathPrefix, msg.EntryPathPrefix)
-		}
-		m.selectedEntry = entryNode
-		m.state = StateEntryDetail
-		m.entrydetail = NewEntryDetailModel(entryNode, msg.GroupPath, m.vault)
+		m.entries = m.vault.List()
+		m.state = StateMainView
+		prefix := modelParentPath(msg.EntryPathPrefix)
+		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, prefix, m.width, m.height)
+		m.mainview.SetDirty(true)
 		m = m.propagateSize()
 		return m, nil
 
 	case DeleteEntryMsg:
-		if m.vault != nil && m.selectedEntry != nil {
-			for k := range m.selectedEntry.Attrs {
-				m.vault.Delete(m.selectedEntry.Path + "/" + k)
+		if m.vault != nil {
+			entryPath := m.mainview.SelectedEntryPath()
+			if entryPath != "" {
+				prefix := entryPath + "/"
+				for key := range m.entries {
+					if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+						m.vault.Delete(key)
+					}
+				}
 			}
 		}
-		m = m.rebuildTree()
+		m.entries = m.vault.List()
 		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.tree, m.selectedGroup, m.width, m.height)
+		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
+		m.mainview.SetDirty(true)
+		m = m.propagateSize()
+		return m, nil
+
+	case PasswordChangedMsg:
+		m.state = StateMainView
+		m.mainview.SetDirty(true)
 		m = m.propagateSize()
 		return m, nil
 
@@ -148,8 +164,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.welcome, cmd = m.welcome.Update(msg)
 	case StateMainView:
 		m.mainview, cmd = m.mainview.Update(msg)
-	case StateEntryDetail:
-		m.entrydetail, cmd = m.entrydetail.Update(msg)
 	case StateDBConfig:
 		m.dbconfig, cmd = m.dbconfig.Update(msg)
 	case StateNewEntry:
@@ -165,8 +179,6 @@ func (m AppModel) View() string {
 		return m.welcome.View()
 	case StateMainView:
 		return m.mainview.View()
-	case StateEntryDetail:
-		return m.entrydetail.View()
 	case StateDBConfig:
 		return m.dbconfig.View()
 	case StateNewEntry:
@@ -180,20 +192,6 @@ func (m *AppModel) SetStore(s store.Store) {
 	m.welcome.SetStore(s)
 }
 
-func (m AppModel) rebuildTree() AppModel {
-	m.tree = model.BuildTree(m.vault.List())
-	if m.selectedGroup == nil && m.tree != nil {
-		m.selectedGroup = m.tree
-		for _, child := range m.tree.Children {
-			if child.IsGroup {
-				m.selectedGroup = child
-				break
-			}
-		}
-	}
-	return m
-}
-
 func (m AppModel) propagateSize() AppModel {
 	w := m.width
 	h := m.height
@@ -202,10 +200,27 @@ func (m AppModel) propagateSize() AppModel {
 	}
 
 	m.welcome.SetSize(w, h)
-	m.entrydetail.SetSize(w, h)
+	m.mainview.SetSize(w, h)
 	m.dbconfig.SetSize(w, h)
 	m.newEntry.SetSize(w, h)
 	return m
+}
+
+func modelParentPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	lastSlash := -1
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' {
+			lastSlash = i
+			break
+		}
+	}
+	if lastSlash <= 0 {
+		return ""
+	}
+	return path[:lastSlash]
 }
 
 type OpenVaultMsg struct {
@@ -218,11 +233,6 @@ type CreateVaultMsg struct {
 	Path  string
 }
 
-type SelectEntryMsg struct {
-	Node      *model.Node
-	GroupPath string
-}
-
 type BackToMainMsg struct{}
 
 type OpenDBConfigMsg struct{}
@@ -233,7 +243,7 @@ type OpenNewEntryMsg struct{}
 
 type DeleteEntryMsg struct{}
 
-type SidebarSelectMsg struct{}
+type PasswordChangedMsg struct{}
 
 type NewEntryCreatedMsg struct {
 	EntryPathPrefix string

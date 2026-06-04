@@ -135,7 +135,7 @@ func (m DBConfigModel) Update(msg tea.Msg) (DBConfigModel, tea.Cmd) {
 				m.oldPassword.SetValue("")
 				m.newPassword.SetValue("")
 				m.confirmPassword.SetValue("")
-				return m, nil
+				return m, func() tea.Msg { return PasswordChangedMsg{} }
 			case "esc":
 				m.state = dbConfigChangeNewPassword
 				m.confirmPassword.Blur()

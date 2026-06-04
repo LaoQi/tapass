@@ -112,3 +112,15 @@ tapass-cli <vault-file>
 ```
 tapass-import <keepass.xml> <output.tap>
 ```
+
+#### TOTP 导入
+
+支持三种 KeePass TOTP 格式：
+
+| 格式 | 来源字段 | 说明 |
+|------|----------|------|
+| KeePass 内置 | `TimeOtp-*` | TimeOtp-Secret-Base32 / TimeOtp-Period / TimeOtp-Length / TimeOtp-Algorithm |
+| TOTP 插件 | `TOTP Seed` + `TOTP Settings` | Settings 格式 `period;digits`，如 `30;6` |
+| KeeOTP 插件 | `otp` | 支持 `otpauth://` URI 或 `key=...&size=...` 查询参数格式 |
+
+digits 字段特殊值：`S` 表示 Steam TOTP（5 位 Steam Guard 验证码），导入时保留 `digits=S` 不做数字转换。

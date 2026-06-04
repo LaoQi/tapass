@@ -12,24 +12,33 @@ import (
 )
 
 type NewEntryDialogModel struct {
-	idInput   textinput.Model
-	groupPath string
-	v         *vault.Vault
-	err       error
-	width     int
-	height    int
+	idInput       textinput.Model
+	pathInput     textinput.Model
+	currentPrefix string
+	v             *vault.Vault
+	step          int
+	err           error
+	width         int
+	height        int
 }
 
-func NewNewEntryDialog(groupPath string, v *vault.Vault) NewEntryDialogModel {
+func NewNewEntryDialog(currentPrefix string, v *vault.Vault) NewEntryDialogModel {
+	pathInput := textinput.New()
+	pathInput.Placeholder = "group/subgroup"
+	pathInput.CharLimit = 256
+	pathInput.SetValue(currentPrefix)
+
 	idInput := textinput.New()
 	idInput.Placeholder = "entry key (e.g. github)"
 	idInput.CharLimit = 256
 	idInput.Focus()
 
 	return NewEntryDialogModel{
-		idInput:   idInput,
-		groupPath: groupPath,
-		v:         v,
+		pathInput:     pathInput,
+		idInput:       idInput,
+		currentPrefix: currentPrefix,
+		v:             v,
+		step:          0,
 	}
 }
 
@@ -46,24 +55,62 @@ func (m NewEntryDialogModel) Update(msg tea.Msg) (NewEntryDialogModel, tea.Cmd) 
 		m.height = msg.Height
 	case tea.KeyMsg:
 		m.err = nil
-		switch msg.String() {
-		case "enter":
-			if m.idInput.Value() == "" {
-				m.err = fmt.Errorf("key cannot be empty")
+		switch m.step {
+		case 0:
+			switch msg.String() {
+			case "enter":
+				if m.idInput.Value() == "" {
+					m.err = fmt.Errorf("key cannot be empty")
+					return m, nil
+				}
+				groupPath := m.pathInput.Value()
+				entryPathPrefix := model.EntryPath(groupPath, m.idInput.Value())
+				return m, func() tea.Msg {
+					return NewEntryCreatedMsg{
+						EntryPathPrefix: entryPathPrefix,
+						GroupPath:       groupPath,
+					}
+				}
+			case "tab":
+				m.step = 1
+				m.idInput.Blur()
+				m.pathInput.Focus()
+				return m, nil
+			case "esc":
+				return m, func() tea.Msg { return BackToMainMsg{} }
+			}
+			m.idInput, cmd = m.idInput.Update(msg)
+			return m, cmd
+
+		case 1:
+			switch msg.String() {
+			case "enter":
+				if m.idInput.Value() == "" {
+					m.err = fmt.Errorf("key cannot be empty")
+					return m, nil
+				}
+				groupPath := m.pathInput.Value()
+				entryPathPrefix := model.EntryPath(groupPath, m.idInput.Value())
+				return m, func() tea.Msg {
+					return NewEntryCreatedMsg{
+						EntryPathPrefix: entryPathPrefix,
+						GroupPath:       groupPath,
+					}
+				}
+			case "tab":
+				m.step = 0
+				m.pathInput.Blur()
+				m.idInput.Focus()
+				return m, nil
+			case "esc":
+				m.step = 0
+				m.pathInput.Blur()
+				m.idInput.Focus()
 				return m, nil
 			}
-			entryPathPrefix := model.EntryPath(m.groupPath, m.idInput.Value())
-			return m, func() tea.Msg {
-				return NewEntryCreatedMsg{
-					EntryPathPrefix: entryPathPrefix,
-					GroupPath:        m.groupPath,
-				}
-			}
-		case "esc":
-			return m, func() tea.Msg { return BackToMainMsg{} }
+			m.pathInput, cmd = m.pathInput.Update(msg)
+			return m, cmd
 		}
-		m.idInput, cmd = m.idInput.Update(msg)
-		return m, cmd
 	}
 
 	return m, nil
@@ -79,11 +126,31 @@ func (m NewEntryDialogModel) View() string {
 		height = 10
 	}
 
+	inputW := width - 4
+	if inputW < 20 {
+		inputW = 20
+	}
+
 	var b strings.Builder
-	b.WriteString("New entry key identifier:\n")
-	b.WriteString("This will be used as the path ID. You can add attributes in the detail view.\n\n")
-	b.WriteString(inputStyle.Width(width - 4).Render(m.idInput.View()))
-	b.WriteString("\n[enter] create & edit  [esc] cancel")
+	b.WriteString("New entry:\n\n")
+
+	b.WriteString("Group path:\n")
+	pathStyle := inputStyle.Width(inputW)
+	if m.step == 1 {
+		pathStyle = pathStyle.BorderForeground(lipgloss.Color("#7C3AED"))
+	}
+	b.WriteString(pathStyle.Render(m.pathInput.View()))
+	b.WriteString("\n\n")
+
+	b.WriteString("Entry key:\n")
+	idStyle := inputStyle.Width(inputW)
+	if m.step == 0 {
+		idStyle = idStyle.BorderForeground(lipgloss.Color("#7C3AED"))
+	}
+	b.WriteString(idStyle.Render(m.idInput.View()))
+	b.WriteString("\n\n")
+
+	b.WriteString(menuStyle.Render("[Tab] switch field  [enter] create  [esc] cancel"))
 
 	if m.err != nil {
 		b.WriteString("\n")

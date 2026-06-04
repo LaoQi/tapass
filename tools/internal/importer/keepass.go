@@ -234,7 +234,11 @@ func buildTimeOtpUri(title string, fields map[string]string) string {
 	}
 	digits := "6"
 	if v, ok := fields["TimeOtp-Length"]; ok && v != "" {
-		digits = v
+		if v == "S" || v == "s" {
+			digits = "S"
+		} else {
+			digits = v
+		}
 	}
 	algorithm := "SHA1"
 	if v, ok := fields["TimeOtp-Algorithm"]; ok && v != "" {
@@ -261,7 +265,9 @@ func buildPluginTotpUri(title, seed, settings string) string {
 			}
 		}
 		if len(parts) >= 2 && parts[1] != "" {
-			if _, err := strconv.Atoi(parts[1]); err == nil {
+			if parts[1] == "S" || parts[1] == "s" {
+				digits = "S"
+			} else if _, err := strconv.Atoi(parts[1]); err == nil {
 				digits = parts[1]
 			}
 		}

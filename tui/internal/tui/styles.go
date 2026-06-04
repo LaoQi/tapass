@@ -24,4 +24,19 @@ var (
 
 	menuStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9CA3AF"))
+
+	focusBorderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#FF8C00"))
+
+	blurBorderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#374151"))
+
+	totpCodeStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#34D399"))
+
+	timestampStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6B7280"))
 )

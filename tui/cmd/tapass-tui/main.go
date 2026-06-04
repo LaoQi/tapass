@@ -10,9 +10,15 @@ import (
 )
 
 func main() {
+	dbPath := ""
+	if len(os.Args) > 1 {
+		dbPath = os.Args[1]
+	}
+
 	store := local.New()
 	app := tui.NewApp(store)
 	app.SetStore(store)
+	app.SetInitialDBPath(dbPath)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 

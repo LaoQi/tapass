@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tapass/tapass-tui/internal/store"
 )
@@ -27,6 +27,7 @@ type WelcomeModel struct {
 	pathInput     textinput.Model
 	passwordInput textinput.Model
 	confirmInput  textinput.Model
+	initialPath   string
 	err           error
 	width         int
 	height        int
@@ -185,6 +186,17 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 	return m, nil
 }
 
+var tapassASCII = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#7C3AED")).
+	Bold(true).
+	Render(
+		`████████╗ █████╗ ██████╗  █████╗ ███████╗███████╗
+╚══██╔══╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝
+   ██║   ███████║██████╔╝███████║███████╗███████╗
+   ██║   ██╔══██║██╔═══╝ ██╔══██║╚════██║╚════██║
+   ██║   ██║  ██║██║     ██║  ██║███████║███████║
+   ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝`)
+
 func (m WelcomeModel) View() string {
 	width := m.width
 	if width < 1 {
@@ -195,64 +207,82 @@ func (m WelcomeModel) View() string {
 		height = 20
 	}
 
-	var b strings.Builder
+	inputW := clampInt(width/2, 24, 60)
 
-	b.WriteString(titleStyle.Render("tapass-tui"))
-	b.WriteString("\n\n")
+	var content strings.Builder
 
-	inputW := width - 4
-	if inputW < 20 {
-		inputW = 20
-	}
+	content.WriteString(tapassASCII)
+	content.WriteString("\n\n")
 
 	switch m.state {
 	case WelcomeSelect:
-		b.WriteString(menuStyle.Render("  [o] Open existing vault\n"))
-		b.WriteString(menuStyle.Render("  [n] Create new vault\n"))
-		b.WriteString(menuStyle.Render("  [q] Quit\n"))
+		content.WriteString(menuStyle.Render("  [o] Open existing vault\n  [n] Create new vault\n  [q] Quit"))
 
 	case WelcomeOpenPath:
-		b.WriteString("Enter vault path:\n")
-		b.WriteString(inputStyle.Width(inputW).Render(m.pathInput.View()))
-		b.WriteString("\n")
-		b.WriteString(menuStyle.Render("[esc] back"))
+		content.WriteString("Enter vault path:\n\n")
+		content.WriteString(inputStyle.Width(inputW).Render(m.pathInput.View()))
 
 	case WelcomeOpenPassword:
-		b.WriteString(fmt.Sprintf("Opening: %s\n", m.pathInput.Value()))
-		b.WriteString("Enter master password:\n")
-		b.WriteString(inputStyle.Width(inputW).Render(m.passwordInput.View()))
-		b.WriteString("\n")
-		b.WriteString(menuStyle.Render("[esc] back"))
+		content.WriteString(fmt.Sprintf("Opening: %s\n\n", m.pathInput.Value()))
+		content.WriteString("Enter master password:\n\n")
+		content.WriteString(inputStyle.Width(inputW).Render(m.passwordInput.View()))
 
 	case WelcomeNewPath:
-		b.WriteString("Enter path for new vault:\n")
-		b.WriteString(inputStyle.Width(inputW).Render(m.pathInput.View()))
-		b.WriteString("\n")
-		b.WriteString(menuStyle.Render("[esc] back"))
+		content.WriteString("Enter path for new vault:\n\n")
+		content.WriteString(inputStyle.Width(inputW).Render(m.pathInput.View()))
 
 	case WelcomeNewPassword:
-		b.WriteString(fmt.Sprintf("Creating: %s\n", m.pathInput.Value()))
-		b.WriteString("Enter master password:\n")
-		b.WriteString(inputStyle.Width(inputW).Render(m.passwordInput.View()))
-		b.WriteString("\n")
-		b.WriteString(menuStyle.Render("[esc] back"))
+		content.WriteString(fmt.Sprintf("Creating: %s\n\n", m.pathInput.Value()))
+		content.WriteString("Enter master password:\n\n")
+		content.WriteString(inputStyle.Width(inputW).Render(m.passwordInput.View()))
 
 	case WelcomeNewPasswordConfirm:
-		b.WriteString("Confirm master password:\n")
-		b.WriteString(inputStyle.Width(inputW).Render(m.confirmInput.View()))
-		b.WriteString("\n")
-		b.WriteString(menuStyle.Render("[esc] back"))
+		content.WriteString("Confirm master password:\n\n")
+		content.WriteString(inputStyle.Width(inputW).Render(m.confirmInput.View()))
 	}
 
 	if m.err != nil {
-		b.WriteString("\n")
-		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+		content.WriteString("\n\n")
+		content.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 	}
 
-	return lipgloss.NewStyle().
+	titleView := lipgloss.NewStyle().
 		Width(width).
-		Height(height).
-		Render(b.String())
+		Padding(1, 0).
+		Render(titleStyle.Render("tapass-tui"))
+
+	contentStr := content.String()
+	contentLines := strings.Count(contentStr, "\n") + 1
+	contentMaxW := 0
+	for _, line := range strings.Split(contentStr, "\n") {
+		if lipgloss.Width(line) > contentMaxW {
+			contentMaxW = lipgloss.Width(line)
+		}
+	}
+
+	availH := height - 4
+	padTop := (availH - contentLines) / 2
+	if padTop < 0 {
+		padTop = 0
+	}
+	padLeft := (width - contentMaxW) / 2
+	if padLeft < 0 {
+		padLeft = 0
+	}
+
+	centerView := lipgloss.NewStyle().
+		Width(width).
+		Height(availH).
+		Padding(padTop, 0, 0, padLeft).
+		Render(contentStr)
+
+	hint := "[esc] back"
+	if m.state == WelcomeSelect {
+		hint = "[o] open  [n] new  [q] quit"
+	}
+	statusView := statusBarStyle.Width(width).Render(hint)
+
+	return lipgloss.JoinVertical(lipgloss.Top, titleView, centerView, statusView)
 }
 
 func (m *WelcomeModel) SetStore(s store.Store) {
@@ -262,4 +292,11 @@ func (m *WelcomeModel) SetStore(s store.Store) {
 func (m *WelcomeModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
+}
+
+func (m *WelcomeModel) SetInitialPath(path string) {
+	m.initialPath = path
+	m.pathInput.SetValue(path)
+	m.state = WelcomeOpenPassword
+	m.passwordInput.Focus()
 }

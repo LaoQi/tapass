@@ -672,3 +672,169 @@ func TestImportTimestampBase64(t *testing.T) {
 		t.Errorf("expected timestamp %d (2024-06-15T10:30:00Z), got %d", expectedTs, passwdEntry.Timestamp)
 	}
 }
+
+func TestImportSteamTOTPTimeOtp(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="utf-8"?>
+<KeePassFile>
+  <Meta>
+    <Generator>KeePass</Generator>
+    <RecycleBinEnabled>False</RecycleBinEnabled>
+  </Meta>
+  <Root>
+    <Group>
+      <UUID>ROOT==</UUID>
+      <Name>Root</Name>
+      <Group>
+        <UUID>G1==</UUID>
+        <Name>游戏</Name>
+        <Entry>
+          <UUID>E1==</UUID>
+          <Times>
+            <LastModificationTime>2025-06-01T12:00:00Z</LastModificationTime>
+          </Times>
+          <String>
+            <Key>Title</Key>
+            <Value>Steam</Value>
+          </String>
+          <String>
+            <Key>Password</Key>
+            <Value>steam-pass</Value>
+          </String>
+          <String>
+            <Key>TimeOtp-Secret-Base32</Key>
+            <Value>JBSWY3DPEHPK3PXP</Value>
+          </String>
+          <String>
+            <Key>TimeOtp-Period</Key>
+            <Value>30</Value>
+          </String>
+          <String>
+            <Key>TimeOtp-Length</Key>
+            <Value>S</Value>
+          </String>
+        </Entry>
+      </Group>
+    </Group>
+  </Root>
+</KeePassFile>`
+
+	dir := t.TempDir()
+	xmlPath := filepath.Join(dir, "test.xml")
+	tapPath := filepath.Join(dir, "test.tap")
+
+	if err := os.WriteFile(xmlPath, []byte(xml), 0644); err != nil {
+		t.Fatalf("write xml: %v", err)
+	}
+
+	stats, err := Import(xmlPath, tapPath, "testpassword")
+	if err != nil {
+		t.Fatalf("Import failed: %v", err)
+	}
+
+	if stats.TOTP != 1 {
+		t.Errorf("expected 1 TOTP, got %d", stats.TOTP)
+	}
+
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
+	if err != nil {
+		t.Fatalf("open vault: %v", err)
+	}
+
+	val, ok := v.Get("/游戏/Steam/TOTP")
+	if !ok {
+		t.Fatal("expected TOTP attribute for Steam")
+	}
+
+	totp := string(val)
+	if !strings.Contains(totp, "digits=S") {
+		t.Errorf("expected digits=S in URI for Steam TOTP, got '%s'", totp)
+	}
+	if !strings.Contains(totp, "secret=JBSWY3DPEHPK3PXP") {
+		t.Errorf("expected secret in URI, got '%s'", totp)
+	}
+}
+
+func TestImportSteamTOTPPlugin(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="utf-8"?>
+<KeePassFile>
+  <Meta>
+    <Generator>KeePass</Generator>
+    <RecycleBinEnabled>False</RecycleBinEnabled>
+  </Meta>
+  <Root>
+    <Group>
+      <UUID>ROOT==</UUID>
+      <Name>Root</Name>
+      <Group>
+        <UUID>G1==</UUID>
+        <Name>游戏</Name>
+        <Entry>
+          <UUID>E1==</UUID>
+          <Times>
+            <LastModificationTime>2025-06-01T12:00:00Z</LastModificationTime>
+          </Times>
+          <String>
+            <Key>Title</Key>
+            <Value>Steam2</Value>
+          </String>
+          <String>
+            <Key>Password</Key>
+            <Value>steam-pass2</Value>
+          </String>
+          <String>
+            <Key>TOTP Seed</Key>
+            <Value>GEZDGNBVGY3TQOJQ</Value>
+          </String>
+          <String>
+            <Key>TOTP Settings</Key>
+            <Value>30;S</Value>
+          </String>
+        </Entry>
+      </Group>
+    </Group>
+  </Root>
+</KeePassFile>`
+
+	dir := t.TempDir()
+	xmlPath := filepath.Join(dir, "test.xml")
+	tapPath := filepath.Join(dir, "test.tap")
+
+	if err := os.WriteFile(xmlPath, []byte(xml), 0644); err != nil {
+		t.Fatalf("write xml: %v", err)
+	}
+
+	stats, err := Import(xmlPath, tapPath, "testpassword")
+	if err != nil {
+		t.Fatalf("Import failed: %v", err)
+	}
+
+	if stats.TOTP != 1 {
+		t.Errorf("expected 1 TOTP, got %d", stats.TOTP)
+	}
+
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
+	if err != nil {
+		t.Fatalf("open vault: %v", err)
+	}
+
+	val, ok := v.Get("/游戏/Steam2/TOTP")
+	if !ok {
+		t.Fatal("expected TOTP attribute for Steam plugin format")
+	}
+
+	totp := string(val)
+	if !strings.Contains(totp, "digits=S") {
+		t.Errorf("expected digits=S in URI for Steam TOTP, got '%s'", totp)
+	}
+	if !strings.Contains(totp, "period=30") {
+		t.Errorf("expected period=30 in URI, got '%s'", totp)
+	}
+}
