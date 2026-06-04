@@ -11,36 +11,27 @@ import (
 
 func main() {
 	if len(os.Args) != 3 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <keepass.xml> <output.tap>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s <input.xml|input.kdbx> <output.tap>\n", os.Args[0])
 		os.Exit(1)
 	}
 
-	xmlPath := os.Args[1]
+	inputPath := os.Args[1]
 	tapPath := os.Args[2]
 
-	if _, err := os.Stat(xmlPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: cannot access %s: %v\n", xmlPath, err)
+	if _, err := os.Stat(inputPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot access %s: %v\n", inputPath, err)
 		os.Exit(1)
 	}
 
-	password, err := readPassword("Enter master password: ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	var stats *importer.ImportStats
+	var err error
+
+	if importer.IsKDBX(inputPath) {
+		stats, err = importFromKDBX(inputPath, tapPath)
+	} else {
+		stats, err = importFromXML(inputPath, tapPath)
 	}
 
-	confirm, err := readPassword("Confirm master password: ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if string(password) != string(confirm) {
-		fmt.Fprintln(os.Stderr, "Error: passwords do not match")
-		os.Exit(1)
-	}
-
-	stats, err := importer.Import(xmlPath, tapPath, string(password))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -51,6 +42,47 @@ func main() {
 		fmt.Printf(", %d skipped (recycle bin)", stats.Skipped)
 	}
 	fmt.Println()
+}
+
+func importFromXML(xmlPath, tapPath string) (*importer.ImportStats, error) {
+	password, err := readPassword("Enter master password: ")
+	if err != nil {
+		return nil, fmt.Errorf("read password: %w", err)
+	}
+
+	confirm, err := readPassword("Confirm master password: ")
+	if err != nil {
+		return nil, fmt.Errorf("read password: %w", err)
+	}
+
+	if string(password) != string(confirm) {
+		return nil, fmt.Errorf("passwords do not match")
+	}
+
+	return importer.Import(xmlPath, tapPath, string(password))
+}
+
+func importFromKDBX(kdbxPath, tapPath string) (*importer.ImportStats, error) {
+	kdbxPw, err := readPassword("Enter KeePass password: ")
+	if err != nil {
+		return nil, fmt.Errorf("read password: %w", err)
+	}
+
+	tapPw, err := readPassword("Enter new tapass password: ")
+	if err != nil {
+		return nil, fmt.Errorf("read password: %w", err)
+	}
+
+	confirm, err := readPassword("Confirm tapass password: ")
+	if err != nil {
+		return nil, fmt.Errorf("read password: %w", err)
+	}
+
+	if string(tapPw) != string(confirm) {
+		return nil, fmt.Errorf("passwords do not match")
+	}
+
+	return importer.ImportKDBX(kdbxPath, tapPath, string(kdbxPw), string(tapPw))
 }
 
 func readPassword(prompt string) ([]byte, error) {

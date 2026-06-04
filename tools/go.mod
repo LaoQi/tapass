@@ -7,4 +7,8 @@ require (
 	golang.org/x/term v0.43.0
 )
 
-require golang.org/x/sys v0.45.0 // indirect
+require (
+	github.com/tobischo/argon2 v0.1.0 // indirect
+	github.com/tobischo/gokeepasslib/v3 v3.6.2 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+)
