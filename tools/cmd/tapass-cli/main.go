@@ -1,150 +1,379 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
+	"golang.org/x/term"
 	"github.com/tapass/tapass-tools/vault"
 )
 
+var out io.Writer = os.Stderr
+
+var commands = []string{
+	"create", "open", "set", "get", "delete", "list", "raw",
+	"passwd", "compact", "help", "quit", "exit",
+}
+
+type terminal struct {
+	history []string
+	histIdx int
+	vault   *vault.Vault
+	path    string
+}
+
 func main() {
 	if len(os.Args) < 2 {
-		usage()
+		fmt.Fprintf(os.Stderr, "usage: tapass-cli <vault-file>\r\n")
 		os.Exit(1)
 	}
 
-	cmd := os.Args[1]
+	t := &terminal{path: os.Args[1]}
+
+	if _, err := os.Stat(t.path); os.IsNotExist(err) {
+		fmt.Fprintf(out, "File not found: %s\r\n", t.path)
+		fmt.Fprintln(out, "Use 'create' command to create a new vault.")
+	} else {
+		password := readPassword("Enter password: ")
+		v, err := vault.Open(t.path, password)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\r\n", err)
+			os.Exit(1)
+		}
+		t.vault = v
+		fmt.Fprintf(out, "Vault opened: %s\r\n\r\n", t.path)
+	}
+
+	t.run()
+}
+
+func (t *terminal) run() {
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "terminal error: %v\r\n", err)
+		os.Exit(1)
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	reader := bufio.NewReader(os.Stdin)
+	lineBuf := ""
+
+	for {
+		fmt.Fprintf(out, "\rtapass> %s\033[K", lineBuf)
+
+		b, err := reader.ReadByte()
+		if err != nil {
+			break
+		}
+
+		switch {
+		case b == 3:
+			lineBuf = ""
+			fmt.Fprint(out, "\r\n")
+		case b == 4:
+			if lineBuf == "" {
+				fmt.Fprint(out, "\r\n")
+				return
+			}
+			lineBuf = deleteLastRune(lineBuf)
+		case b == 127 || b == 8:
+			lineBuf = deleteLastRune(lineBuf)
+		case b == '\r' || b == '\n':
+			fmt.Fprint(out, "\r\n")
+			if strings.TrimSpace(lineBuf) != "" {
+				t.history = append(t.history, lineBuf)
+				t.histIdx = len(t.history)
+				t.execute(lineBuf)
+			}
+			lineBuf = ""
+		case b == '\t':
+			lineBuf = t.complete(lineBuf)
+		case b == 27:
+			seq := make([]byte, 2)
+			if _, err := reader.Read(seq); err == nil {
+				if seq[0] == '[' {
+					switch seq[1] {
+					case 'A':
+						if t.histIdx > 0 {
+							t.histIdx--
+							lineBuf = t.history[t.histIdx]
+						}
+					case 'B':
+						if t.histIdx < len(t.history) {
+							t.histIdx++
+							if t.histIdx < len(t.history) {
+								lineBuf = t.history[t.histIdx]
+							} else {
+								lineBuf = ""
+							}
+						}
+					}
+				}
+			}
+		case b >= 32 && b < 127:
+			lineBuf += string(b)
+		case b >= 0xC0:
+			seq := []byte{b}
+			needed := utf8SeqLen(b)
+			for i := 0; i < needed; i++ {
+				nb, err := reader.ReadByte()
+				if err != nil || nb < 0x80 || nb > 0xBF {
+					break
+				}
+				seq = append(seq, nb)
+			}
+			if len(seq) == 1+needed {
+				lineBuf += string(seq)
+			}
+		}
+	}
+}
+
+func (t *terminal) complete(line string) string {
+	words := strings.Fields(line)
+	trailingSpace := len(line) > 0 && line[len(line)-1] == ' '
+
+	if len(words) == 0 || (len(words) == 1 && !trailingSpace) {
+		prefix := ""
+		if len(words) == 1 {
+			prefix = words[0]
+		}
+		candidates := filterPrefix(commands, prefix)
+		if len(candidates) == 1 {
+			return candidates[0] + " "
+		}
+		if len(candidates) > 1 {
+			common := longestCommonPrefix(candidates)
+			if common != prefix {
+				return common
+			}
+			fmt.Fprint(out, "\r\n")
+			for _, c := range candidates {
+				fmt.Fprintf(out, "%s  ", c)
+			}
+			fmt.Fprint(out, "\r\n")
+		}
+		return line
+	}
+
+	cmd := words[0]
+	if (cmd == "get" || cmd == "delete" || cmd == "set") && t.vault != nil {
+		if (len(words) == 1 && trailingSpace) || (len(words) == 2 && !trailingSpace) {
+			prefix := ""
+			if len(words) == 2 {
+				prefix = words[1]
+			}
+			keys := vaultKeys(t.vault)
+			candidates := filterPrefix(keys, prefix)
+			if len(candidates) == 1 {
+				result := strings.Join(words[:len(words)-1], " ")
+				if result != "" {
+					result += " "
+				}
+				return result + candidates[0] + " "
+			}
+			if len(candidates) > 1 {
+				common := longestCommonPrefix(candidates)
+				if common != prefix {
+					result := strings.Join(words[:len(words)-1], " ")
+					if result != "" {
+						result += " "
+					}
+					return result + common
+				}
+				fmt.Fprint(out, "\r\n")
+				for _, c := range candidates {
+					fmt.Fprintf(out, "%s  ", c)
+				}
+				fmt.Fprint(out, "\r\n")
+			}
+		}
+	}
+
+	return line
+}
+
+func filterPrefix(list []string, prefix string) []string {
+	var result []string
+	for _, s := range list {
+		if strings.HasPrefix(s, prefix) {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func longestCommonPrefix(list []string) string {
+	if len(list) == 0 {
+		return ""
+	}
+	prefix := list[0]
+	for _, s := range list[1:] {
+		for !strings.HasPrefix(s, prefix) {
+			prefix = prefix[:len(prefix)-1]
+			if prefix == "" {
+				return ""
+			}
+		}
+	}
+	return prefix
+}
+
+func vaultKeys(v *vault.Vault) []string {
+	entries := v.List()
+	keys := make([]string, 0, len(entries))
+	for k := range entries {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func (t *terminal) execute(line string) {
+	args := strings.Fields(line)
+	if len(args) == 0 {
+		return
+	}
+
+	cmd := args[0]
 
 	switch cmd {
 	case "create":
-		cmdCreate()
+		t.cmdCreate()
+	case "open":
+		t.cmdOpen()
 	case "set":
-		cmdSet()
+		t.cmdSet(args)
 	case "get":
-		cmdGet()
+		t.cmdGet(args)
 	case "delete":
-		cmdDelete()
+		t.cmdDelete(args)
 	case "list":
-		cmdList()
+		t.cmdList()
+	case "raw":
+		t.cmdRaw()
+	case "passwd":
+		t.cmdPasswd()
+	case "compact":
+		t.cmdCompact()
+	case "help":
+		t.cmdHelp()
+	case "quit", "exit":
+		fmt.Fprintln(out, "bye.")
+		os.Exit(0)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		usage()
-		os.Exit(1)
+		fmt.Fprintf(out, "unknown command: %s\r\n", cmd)
 	}
 }
 
-func usage() {
-	fmt.Fprintf(os.Stderr, `tapass - tapass V1 password manager CLI
-
-Usage:
-  tapass create <file> <password>
-  tapass set    <file> <password> <key> <value>
-  tapass get    <file> <password> <key>
-  tapass delete <file> <password> <key>
-  tapass list   <file> <password>
-`)
-}
-
-func cmdCreate() {
-	if len(os.Args) != 4 {
-		fmt.Fprintf(os.Stderr, "usage: tapass create <file> <password>\n")
-		os.Exit(1)
+func (t *terminal) cmdCreate() {
+	password1 := readPassword("New password: ")
+	password2 := readPassword("Confirm password: ")
+	if password1 != password2 {
+		fmt.Fprintln(out, "passwords do not match")
+		return
 	}
-	file := os.Args[2]
-	password := os.Args[3]
 
-	if err := vault.Create(file, password); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	if err := vault.Create(t.path, password1); err != nil {
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
 	}
-	fmt.Println("vault created:", file)
-}
 
-func cmdSet() {
-	if len(os.Args) != 6 {
-		fmt.Fprintf(os.Stderr, "usage: tapass set <file> <password> <key> <value>\n")
-		os.Exit(1)
-	}
-	file := os.Args[2]
-	password := os.Args[3]
-	key := os.Args[4]
-	value := os.Args[5]
-
-	v, err := vault.Open(file, password)
+	v, err := vault.Open(t.path, password1)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
 	}
-
-	if err := v.Set(key, []byte(value)); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("ok")
+	t.vault = v
+	fmt.Fprintf(out, "vault created: %s\r\n", t.path)
 }
 
-func cmdGet() {
-	if len(os.Args) != 5 {
-		fmt.Fprintf(os.Stderr, "usage: tapass get <file> <password> <key>\n")
-		os.Exit(1)
+func (t *terminal) cmdOpen() {
+	fmt.Fprint(out, "File path: ")
+	path := readLine()
+	if path == "" {
+		return
 	}
-	file := os.Args[2]
-	password := os.Args[3]
-	key := os.Args[4]
 
-	v, err := vault.Open(file, password)
+	password := readPassword("Password: ")
+	v, err := vault.Open(path, password)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
 	}
+	t.vault = v
+	t.path = path
+	fmt.Fprintf(out, "Vault opened: %s\r\n", path)
+}
 
-	val, ok := v.Get(key)
+func (t *terminal) cmdSet(args []string) {
+	if t.vault == nil {
+		fmt.Fprintln(out, "no vault open")
+		return
+	}
+	if len(args) < 3 {
+		fmt.Fprintln(out, "usage: set <key> <value>")
+		return
+	}
+	key := args[1]
+	value := strings.Join(args[2:], " ")
+
+	if err := t.vault.Set(key, []byte(value)); err != nil {
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
+	}
+	fmt.Fprintln(out, "ok")
+}
+
+func (t *terminal) cmdGet(args []string) {
+	if t.vault == nil {
+		fmt.Fprintln(out, "no vault open")
+		return
+	}
+	if len(args) < 2 {
+		fmt.Fprintln(out, "usage: get <key>")
+		return
+	}
+	key := args[1]
+
+	val, ok := t.vault.Get(key)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "key not found: %s\n", key)
-		os.Exit(1)
+		fmt.Fprintf(out, "key not found: %s\r\n", key)
+		return
 	}
-	fmt.Println(string(val))
+	fmt.Fprintf(out, "%s\r\n", string(val))
 }
 
-func cmdDelete() {
-	if len(os.Args) != 5 {
-		fmt.Fprintf(os.Stderr, "usage: tapass delete <file> <password> <key>\n")
-		os.Exit(1)
+func (t *terminal) cmdDelete(args []string) {
+	if t.vault == nil {
+		fmt.Fprintln(out, "no vault open")
+		return
 	}
-	file := os.Args[2]
-	password := os.Args[3]
-	key := os.Args[4]
+	if len(args) < 2 {
+		fmt.Fprintln(out, "usage: delete <key>")
+		return
+	}
+	key := args[1]
 
-	v, err := vault.Open(file, password)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	if err := t.vault.Delete(key); err != nil {
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
 	}
-
-	if err := v.Delete(key); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("deleted:", key)
+	fmt.Fprintf(out, "deleted: %s\r\n", key)
 }
 
-func cmdList() {
-	if len(os.Args) != 4 {
-		fmt.Fprintf(os.Stderr, "usage: tapass list <file> <password>\n")
-		os.Exit(1)
-	}
-	file := os.Args[2]
-	password := os.Args[3]
-
-	v, err := vault.Open(file, password)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+func (t *terminal) cmdList() {
+	if t.vault == nil {
+		fmt.Fprintln(out, "no vault open")
+		return
 	}
 
-	entries := v.List()
+	entries := t.vault.List()
 	keys := make([]string, 0, len(entries))
 	for k := range entries {
 		keys = append(keys, k)
@@ -158,6 +387,127 @@ func cmdList() {
 		if e.Type == 2 {
 			typeName = "blob"
 		}
-		fmt.Printf("%s  %s  %s  %s\n", ts, typeName, k, string(e.Value))
+		fmt.Fprintf(out, "%s  %s  %s  %s\r\n", ts, typeName, k, string(e.Value))
 	}
+}
+
+func (t *terminal) cmdRaw() {
+	if t.vault == nil {
+		fmt.Fprintln(out, "no vault open")
+		return
+	}
+
+	for i, e := range t.vault.Entries {
+		ts := time.UnixMilli(int64(e.Timestamp)).Format("2006-01-02 15:04:05.000")
+		typeName := fmt.Sprintf("%s(%d)", typeToString(e.Type), e.Type)
+		value := "-"
+		if e.Type != vault.TypeClear {
+			if e.Type == vault.TypeBlob {
+				value = fmt.Sprintf("[blob %d bytes]", len(e.Value))
+			} else {
+				value = string(e.Value)
+			}
+		}
+		fmt.Fprintf(out, "#%d  %s  %-10s  %s  %s\r\n", i+1, ts, typeName, e.Key, value)
+	}
+}
+
+func typeToString(t uint8) string {
+	switch t {
+	case vault.TypeClear:
+		return "clear"
+	case vault.TypeText:
+		return "text"
+	case vault.TypeBlob:
+		return "blob"
+	default:
+		return "unknown"
+	}
+}
+
+func (t *terminal) cmdPasswd() {
+	if t.vault == nil {
+		fmt.Fprintln(out, "no vault open")
+		return
+	}
+
+	oldPassword := readPassword("Old password: ")
+	newPassword1 := readPassword("New password: ")
+	newPassword2 := readPassword("Confirm new password: ")
+
+	if newPassword1 != newPassword2 {
+		fmt.Fprintln(out, "passwords do not match")
+		return
+	}
+
+	if err := t.vault.ChangePassword(oldPassword, newPassword1); err != nil {
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
+	}
+	fmt.Fprintln(out, "password changed")
+}
+
+func (t *terminal) cmdCompact() {
+	if t.vault == nil {
+		fmt.Fprintln(out, "no vault open")
+		return
+	}
+
+	if err := t.vault.Compact(); err != nil {
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
+	}
+	fmt.Fprintln(out, "vault compacted")
+}
+
+func (t *terminal) cmdHelp() {
+	fmt.Fprintln(out, `Commands:
+  create              Create a new vault
+  open                Open a vault file
+  set <key> <value>   Set an entry
+  get <key>           Get an entry value
+  delete <key>        Delete an entry
+  list                List all entries
+  raw                 Show all raw entries (including deleted)
+  passwd              Change password
+  compact             Compact vault (remove deleted entries)
+  help                Show this help
+  quit / exit         Exit`)
+}
+
+func deleteLastRune(s string) string {
+	runes := []rune(s)
+	if len(runes) > 0 {
+		return string(runes[:len(runes)-1])
+	}
+	return s
+}
+
+func utf8SeqLen(b byte) int {
+	switch {
+	case b >= 0xF0:
+		return 3
+	case b >= 0xE0:
+		return 2
+	case b >= 0xC0:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func readPassword(prompt string) string {
+	fmt.Fprint(out, prompt)
+	password, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprint(out, "\r\n")
+	if err != nil {
+		return ""
+	}
+	return string(password)
+}
+
+func readLine() string {
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	return strings.TrimSpace(line)
 }

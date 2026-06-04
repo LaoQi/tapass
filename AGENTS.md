@@ -9,8 +9,8 @@ tapass/
 ├── docs/           # 设计文档
 │   └── v1/         # V1 版本设计
 ├── tools/          # CLI 工具集（独立 Go 模块）
-│   ├── cmd/tapass/           # CLI CRUD 工具
-│   ├── cmd/tapass-import/    # KeePass 导入
+│   ├── cmd/tapass-cli/        # 交互式 CLI 工具
+│   ├── cmd/tapass-import/     # KeePass 导入
 │   ├── vault/                # 核心加密库（非 internal，供 tui 跨模块引用）
 │   └── internal/
 │       └── importer/         # KeePass 导入逻辑

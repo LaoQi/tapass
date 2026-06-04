@@ -18,7 +18,7 @@ tapass/
 
 核心加密库（vault）和命令行工具：
 
-- `tapass` — CRUD CLI（create/set/get/delete/list）
+- `tapass-cli` — 交互式 CLI（create/open/set/get/delete/list/raw/passwd/compact）
 - `tapass-import` — KeePass XML 导入工具
 
 ### tui — TUI 客户端

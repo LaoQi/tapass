@@ -9,14 +9,14 @@ go build ./...                                    # 编译
 go test ./vault/ -v -timeout 120s             # vault 测试（Argon2id 慢，需 timeout）
 go test ./internal/importer/ -v -timeout 120s  # importer 测试
 go vet ./...                                      # 静态检查
-go run ./cmd/tapass/                              # 运行 CLI
-go run ./cmd/tapass-import/                       # 运行导入工具
+go run ./cmd/tapass-cli/                            # 运行交互式 CLI
+go run ./cmd/tapass-import/                         # 运行导入工具
 ```
 
 ## 包结构
 
 ```
-cmd/tapass/main.go           # CLI CRUD 工具入口
+cmd/tapass-cli/main.go       # 交互式 CLI 工具入口
 cmd/tapass-import/main.go    # KeePass XML 导入入口
 vault/                       # 核心加密库（非 internal，供 tui 跨模块引用）
   crypto.go                  # Argon2id + HKDF + XChaCha20-Poly1305
@@ -52,12 +52,48 @@ internal/
 
 ## CLI 用法
 
-```
-tapass create <file> <password>
-tapass set    <file> <password> <key> <value>
-tapass get    <file> <password> <key>
-tapass delete <file> <password> <key>
-tapass list   <file> <password>
+tapass-cli 为交互式终端工具，启动时指定 vault 文件，密码通过终端提示输入（不回显）：
 
+```
+tapass-cli <vault-file>
+```
+
+### 交互命令
+
+| 命令 | 说明 |
+|------|------|
+| `create` | 创建新 vault（两次密码确认） |
+| `open` | 打开/切换 vault 文件 |
+| `set <key> <value>` | 设置条目 |
+| `get <key>` | 获取条目值 |
+| `delete <key>` | 删除条目 |
+| `list` | 列出所有有效条目 |
+| `raw` | 显示所有原始 Entry（含已删除条目，显示序号/时间戳/类型/Key/Value） |
+| `passwd` | 修改密码 |
+| `compact` | 压缩 vault（清除历史/已删除条目） |
+| `help` | 显示帮助 |
+| `quit` / `exit` | 退出 |
+
+### 交互特性
+
+- Tab 补全：第一级补全命令名，第二级对 get/delete/set 补全已有 key
+- 上下箭头浏览命令历史（仅内存）
+- 支持 UTF-8 多字节字符输入
+- 密码输入使用 term.ReadPassword()，不回显
+- 终端 raw 模式，所有输出使用 \r\n 换行
+
+### raw 输出格式
+
+```
+#N  <timestamp>  <type(N)>  <key>  <value>
+```
+
+- type: clear(0) / text(1) / blob(2)
+- clear 条目 value 显示 `-`
+- blob 条目 value 显示 `[blob N bytes]`
+
+### 导入工具
+
+```
 tapass-import <keepass.xml> <output.tap>
 ```
