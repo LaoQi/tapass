@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tapass V1 Binary File Format",
+  "description": "tapass 密码管理器 V1 版本二进制文件头部结构定义",
+  "type": "object",
+  "properties": {
+    "header": {
+      "type": "object",
+      "description": "明文头部，共 144 字节",
+      "properties": {
+        "magic": {
+          "type": "string",
+          "const": "TAPASS",
+          "byteSize": 6,
+          "offset": 0,
+          "description": "魔数，ASCII 编码，大端序"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1,
+          "byteSize": 2,
+          "offset": 6,
+          "endianness": "little",
+          "description": "版本号，uint16 LE"
+        },
+        "salt": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "byteSize": 32,
+          "offset": 8,
+          "description": "Argon2id 盐值"
+        },
+        "nonce": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "byteSize": 24,
+          "offset": 40,
+          "description": "XChaCha20-Poly1305 nonce"
+        },
+        "argon2_time_cost": {
+          "type": "integer",
+          "byteSize": 4,
+          "offset": 64,
+          "endianness": "little",
+          "description": "Argon2id time_cost，uint32 LE"
+        },
+        "argon2_memory_cost": {
+          "type": "integer",
+          "byteSize": 4,
+          "offset": 68,
+          "endianness": "little",
+          "description": "Argon2id memory_cost，uint32 LE"
+        },
+        "argon2_parallelism": {
+          "type": "integer",
+          "byteSize": 4,
+          "offset": 72,
+          "endianness": "little",
+          "description": "Argon2id parallelism，uint32 LE"
+        },
+        "compression_id": {
+          "type": "integer",
+          "byteSize": 1,
+          "offset": 76,
+          "enum": [0, 1],
+          "enumDescriptions": {
+            "0": "无压缩",
+            "1": "DEFLATE (zlib)"
+          },
+          "description": "压缩算法标识，uint8"
+        },
+        "reserved": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "byteSize": 3,
+          "offset": 77,
+          "description": "保留字节，置零"
+        },
+        "header_mac": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "byteSize": 32,
+          "offset": 80,
+          "description": "SHA256(header[0:80])，头部完整性校验"
+        },
+        "header_hmac": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "byteSize": 32,
+          "offset": 112,
+          "description": "HMAC-SHA256(MAC, HMAC_Key)，主密码验证"
+        }
+      },
+      "required": [
+        "magic",
+        "version",
+        "salt",
+        "nonce",
+        "argon2_time_cost",
+        "argon2_memory_cost",
+        "argon2_parallelism",
+        "compression_id",
+        "reserved",
+        "header_mac",
+        "header_hmac"
+      ]
+    },
+    "encrypted_body": {
+      "type": "object",
+      "description": "加密体",
+      "properties": {
+        "ciphertext": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "description": "XChaCha20-Poly1305 加密的主体数据，变长"
+        },
+        "auth_tag": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "byteSize": 16,
+          "description": "Poly1305 认证标签，附加在密文末尾"
+        }
+      },
+      "required": ["ciphertext", "auth_tag"]
+    },
+    "data_entry": {
+      "type": "object",
+      "description": "数据段 KV 条目，解密后 Ciphertext 由多条紧密排列",
+      "properties": {
+        "timestamp": {
+          "type": "integer",
+          "byteSize": 8,
+          "endianness": "little",
+          "description": "毫秒级 Unix 时间戳，uint64 LE"
+        },
+        "type": {
+          "type": "integer",
+          "byteSize": 1,
+          "enum": [0, 1, 2],
+          "enumDescriptions": {
+            "0": "清空（删除 key）",
+            "1": "文本",
+            "2": "blob"
+          },
+          "description": "数据类型，uint8"
+        },
+        "key_length": {
+          "type": "integer",
+          "byteSize": 2,
+          "endianness": "little",
+          "description": "key UTF-8 字节长度，uint16 LE"
+        },
+        "key": {
+          "type": "string",
+          "contentEncoding": "utf-8",
+          "description": "key 值，UTF-8 编码，长度由 key_length 指定。以 / 分隔路径，最后一项为属性名",
+          "pathSeparator": "/",
+          "pathRoot": "/",
+          "specialAttributes": {
+            "PASSWD": "UI 密码专属控件",
+            "SSH": "SSH 密钥对格式解析",
+            "TOTP": "TOTP secret，动态生成验证码"
+          }
+        },
+        "value_length": {
+          "type": "integer",
+          "byteSize": 4,
+          "endianness": "little",
+          "description": "value 字节长度，uint32 LE；type=0 时为 0"
+        },
+        "value": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "description": "value 值，长度由 value_length 指定；type=0 时无此字段"
+        }
+      },
+      "required": ["timestamp", "type", "key_length", "key", "value_length"],
+      "readSemantics": {
+        "duplicateKey": "取时间戳最新的一条",
+        "type0": "该 key 视为已删除/清空",
+        "parse": "全量线性扫描，紧密排列"
+      }
+    }
+  },
+  "required": ["header", "encrypted_body"]
+}
