@@ -122,7 +122,7 @@ func (m DBConfigModel) Update(msg tea.Msg) (DBConfigModel, tea.Cmd) {
 					m.confirmPassword.SetValue("")
 					return m, nil
 				}
-				if err := m.v.ChangePassword(m.oldPassword.Value(), m.newPassword.Value()); err != nil {
+				if _, err := m.v.ChangePassword(m.oldPassword.Value(), m.newPassword.Value()); err != nil {
 					m.err = err
 					m.oldPassword.SetValue("")
 					m.newPassword.SetValue("")

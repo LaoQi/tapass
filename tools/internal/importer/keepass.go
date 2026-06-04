@@ -86,11 +86,12 @@ func Import(xmlPath, tapPath, password string) (*ImportStats, error) {
 		return nil, fmt.Errorf("parse xml: %w", err)
 	}
 
-	if err := vault.Create(tapPath, password); err != nil {
+	vaultData, err := vault.Create(password)
+	if err != nil {
 		return nil, fmt.Errorf("create vault: %w", err)
 	}
 
-	v, err := vault.Open(tapPath, password)
+	v, err := vault.Open(vaultData, password)
 	if err != nil {
 		return nil, fmt.Errorf("open vault: %w", err)
 	}
@@ -99,8 +100,13 @@ func Import(xmlPath, tapPath, password string) (*ImportStats, error) {
 	recycleBinUUID := strings.TrimSpace(kf.Meta.RecycleBinUUID)
 	walkGroups(v, &kf.Root.Group, "", recycleBinUUID, true, stats)
 
-	if err := v.SortAndWrite(); err != nil {
-		return nil, fmt.Errorf("sort and write: %w", err)
+	v.Sort()
+	outData, err := v.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("marshal vault: %w", err)
+	}
+	if err := os.WriteFile(tapPath, outData, 0600); err != nil {
+		return nil, fmt.Errorf("write vault: %w", err)
 	}
 
 	return stats, nil

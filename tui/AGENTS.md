@@ -65,5 +65,7 @@ internal/
 - 新建条目只创建路径前缀，用户在详情页添加属性
 - 属性编辑先统一文本，PASSWD/TOTP/SSH 专属控件后续迭代
 - 存储扩展通过实现 `store.Store` 接口（先 local，后续 WebDAV）
+- Store.Save 需传入 path 参数（vault 不持有文件路径）
+- vault 包不操作文件系统，文件 I/O 由 store 实现负责（local 使用原子写入）
 - TUI 组件均持有 width/height，通过 SetSize 响应 resize
 - 共享样式定义在 `tui/styles.go`

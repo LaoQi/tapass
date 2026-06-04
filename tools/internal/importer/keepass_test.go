@@ -136,7 +136,11 @@ func TestImportBasic(t *testing.T) {
 		t.Errorf("expected 1 TOTP, got %d", stats.TOTP)
 	}
 
-	v, err := vault.Open(tapPath, "testpassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
@@ -186,7 +190,11 @@ func TestImportTOTPTimeOtp(t *testing.T) {
 		t.Fatalf("Import failed: %v", err)
 	}
 
-	v, err := vault.Open(tapPath, "testpassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
@@ -274,7 +282,11 @@ func TestImportTOTPPlugin(t *testing.T) {
 		t.Errorf("expected 1 TOTP, got %d", stats.TOTP)
 	}
 
-	v, err := vault.Open(tapPath, "testpassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
@@ -362,7 +374,11 @@ func TestImportTOTPOtpKey(t *testing.T) {
 		t.Errorf("expected 1 TOTP, got %d", stats.TOTP)
 	}
 
-	v, err := vault.Open(tapPath, "testpassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
@@ -432,7 +448,11 @@ func TestImportKeeOtpFormat(t *testing.T) {
 		t.Errorf("expected 1 TOTP, got %d", stats.TOTP)
 	}
 
-	v, err := vault.Open(tapPath, "testpassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
@@ -471,7 +491,11 @@ func TestImportTimestamp(t *testing.T) {
 		t.Fatalf("Import failed: %v", err)
 	}
 
-	v, err := vault.Open(tapPath, "testpassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
@@ -562,7 +586,11 @@ func TestImportNestedGroups(t *testing.T) {
 		t.Errorf("expected 1 entry, got %d", stats.Entries)
 	}
 
-	v, err := vault.Open(tapPath, "testpassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
@@ -619,7 +647,11 @@ func TestImportTimestampBase64(t *testing.T) {
 		t.Fatalf("Import failed: %v", err)
 	}
 
-	v, err := vault.Open(tapPath, "testpassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "testpassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}

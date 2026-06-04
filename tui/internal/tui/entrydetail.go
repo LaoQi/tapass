@@ -107,10 +107,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 				if m.cursor < len(m.attrKeys) && m.v != nil {
 					key := m.attrKeys[m.cursor]
 					fullKey := m.entry.Path + "/" + key
-					if err := m.v.Delete(fullKey); err != nil {
-						m.err = err
-						return m, nil
-					}
+					m.v.Delete(fullKey)
 					delete(m.entry.Attrs, key)
 					m.refreshAttrs()
 				}
@@ -121,10 +118,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 			case "enter":
 				if m.v != nil {
 					fullKey := m.entry.Path + "/" + m.editKey
-					if err := m.v.Set(fullKey, []byte(m.editInput.Value())); err != nil {
-						m.err = err
-						return m, nil
-					}
+					m.v.Set(fullKey, []byte(m.editInput.Value()))
 					m.entry.Attrs[m.editKey] = []byte(m.editInput.Value())
 					m.refreshAttrs()
 				}

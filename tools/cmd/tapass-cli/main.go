@@ -40,7 +40,12 @@ func main() {
 		fmt.Fprintln(out, "Use 'create' command to create a new vault.")
 	} else {
 		password := readPassword("Enter password: ")
-		v, err := vault.Open(t.path, password)
+		data, err := os.ReadFile(t.path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\r\n", err)
+			os.Exit(1)
+		}
+		v, err := vault.Open(data, password)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\r\n", err)
 			os.Exit(1)
@@ -50,6 +55,26 @@ func main() {
 	}
 
 	t.run()
+}
+
+func atomicWriteFile(path string, data []byte) error {
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return fmt.Errorf("write tmp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename tmp file: %w", err)
+	}
+	return nil
+}
+
+func (t *terminal) saveVault() error {
+	data, err := t.vault.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(t.path, data)
 }
 
 func (t *terminal) run() {
@@ -279,12 +304,18 @@ func (t *terminal) cmdCreate() {
 		return
 	}
 
-	if err := vault.Create(t.path, password1); err != nil {
+	data, err := vault.Create(password1)
+	if err != nil {
 		fmt.Fprintf(out, "error: %v\r\n", err)
 		return
 	}
 
-	v, err := vault.Open(t.path, password1)
+	if err := atomicWriteFile(t.path, data); err != nil {
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
+	}
+
+	v, err := vault.Open(data, password1)
 	if err != nil {
 		fmt.Fprintf(out, "error: %v\r\n", err)
 		return
@@ -301,7 +332,12 @@ func (t *terminal) cmdOpen() {
 	}
 
 	password := readPassword("Password: ")
-	v, err := vault.Open(path, password)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
+	}
+	v, err := vault.Open(data, password)
 	if err != nil {
 		fmt.Fprintf(out, "error: %v\r\n", err)
 		return
@@ -323,7 +359,8 @@ func (t *terminal) cmdSet(args []string) {
 	key := args[1]
 	value := strings.Join(args[2:], " ")
 
-	if err := t.vault.Set(key, []byte(value)); err != nil {
+	t.vault.Set(key, []byte(value))
+	if err := t.saveVault(); err != nil {
 		fmt.Fprintf(out, "error: %v\r\n", err)
 		return
 	}
@@ -360,7 +397,8 @@ func (t *terminal) cmdDelete(args []string) {
 	}
 	key := args[1]
 
-	if err := t.vault.Delete(key); err != nil {
+	t.vault.Delete(key)
+	if err := t.saveVault(); err != nil {
 		fmt.Fprintf(out, "error: %v\r\n", err)
 		return
 	}
@@ -440,7 +478,13 @@ func (t *terminal) cmdPasswd() {
 		return
 	}
 
-	if err := t.vault.ChangePassword(oldPassword, newPassword1); err != nil {
+	data, err := t.vault.ChangePassword(oldPassword, newPassword1)
+	if err != nil {
+		fmt.Fprintf(out, "error: %v\r\n", err)
+		return
+	}
+
+	if err := atomicWriteFile(t.path, data); err != nil {
 		fmt.Fprintf(out, "error: %v\r\n", err)
 		return
 	}
@@ -453,7 +497,8 @@ func (t *terminal) cmdCompact() {
 		return
 	}
 
-	if err := t.vault.Compact(); err != nil {
+	t.vault.Compact()
+	if err := t.saveVault(); err != nil {
 		fmt.Fprintf(out, "error: %v\r\n", err)
 		return
 	}

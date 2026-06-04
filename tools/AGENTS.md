@@ -42,12 +42,27 @@ internal/
 - 数据段：追加式 KV，同 key 取最新时间戳，Type=0 表示删除
 - Key 路径以 `/` 分隔，特殊属性名：PASSWD / SSH / TOTP
 
+## vault API
+
+vault 包不直接操作文件系统，所有 I/O 通过 `[]byte` 传递：
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `Create` | `(password string) ([]byte, error)` | 创建空 vault，返回序列化字节 |
+| `Open` | `(data []byte, password string) (*Vault, error)` | 从字节反序列化并解密 |
+| `MarshalBinary` | `(*Vault) ([]byte, error)` | 序列化为字节（重新生成 Nonce） |
+| `ChangePassword` | `(old, new string) ([]byte, error)` | 改密，返回新 vault 字节 |
+| `Set/SetBlob/Delete` | 纯内存操作 | 不自动持久化 |
+| `Sort` | `()` | 排序 Entries |
+| `Compact` | `()` | 压缩 Entries（纯内存） |
+
+- 文件读写由调用方负责（CLI、importer、TUI store 各自实现原子写入）
+
 ## 实现约定
 
 - Argon2 默认参数：time=6, memory=16384 (16 MiB), parallelism=1
 - 压缩使用 flate 裸 DEFLATE 流（非 zlib），与设计文档 "zlib/DEFLATE" 描述不同，为本项目明确选择
-- write() 每次写入重新生成 Nonce
-- 文件写入使用临时文件 + 原子替换策略
+- MarshalBinary 每次调用重新生成 Nonce
 - SubKeys.Zero() 安全清零密钥
 
 ## CLI 用法

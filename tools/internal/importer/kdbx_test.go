@@ -104,12 +104,20 @@ func TestImportKDBXBasic(t *testing.T) {
 		t.Errorf("expected 1 TOTP, got %d", stats.TOTP)
 	}
 
-	v, err := vault.Open(tapPath, "tappassword")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "tappassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
 
-	v, err = vault.Open(tapPath, "tappassword")
+	tapData2, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err = vault.Open(tapData2, "tappassword")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
@@ -157,7 +165,11 @@ func TestImportKDBXTOTP(t *testing.T) {
 		t.Fatalf("ImportKDBX failed: %v", err)
 	}
 
-	v, err := vault.Open(tapPath, "tappass")
+	tapData, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatalf("read vault: %v", err)
+	}
+	v, err := vault.Open(tapData, "tappass")
 	if err != nil {
 		t.Fatalf("open vault: %v", err)
 	}
