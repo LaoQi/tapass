@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/tapass/tapass-tui/internal/model"
 )
 
 type dbConfigState int
@@ -20,19 +20,19 @@ const (
 )
 
 type DBConfigModel struct {
-	v               *vault.Vault
-	dbPath          string
-	state           dbConfigState
-	oldPassword     textinput.Model
-	newPassword     textinput.Model
+	db             *model.DB
+	dbPath         string
+	state          dbConfigState
+	oldPassword    textinput.Model
+	newPassword    textinput.Model
 	confirmPassword textinput.Model
-	err             error
-	success         bool
-	width           int
-	height          int
+	err            error
+	success        bool
+	width          int
+	height         int
 }
 
-func NewDBConfigModel(v *vault.Vault, dbPath string) DBConfigModel {
+func NewDBConfigModel(db *model.DB, dbPath string) DBConfigModel {
 	oldPassword := textinput.New()
 	oldPassword.EchoMode = textinput.EchoPassword
 	oldPassword.Placeholder = "current password"
@@ -49,11 +49,11 @@ func NewDBConfigModel(v *vault.Vault, dbPath string) DBConfigModel {
 	confirmPassword.CharLimit = 256
 
 	return DBConfigModel{
-		v:               v,
-		dbPath:          dbPath,
-		state:           dbConfigMenu,
-		oldPassword:     oldPassword,
-		newPassword:     newPassword,
+		db:             db,
+		dbPath:         dbPath,
+		state:          dbConfigMenu,
+		oldPassword:    oldPassword,
+		newPassword:    newPassword,
 		confirmPassword: confirmPassword,
 	}
 }
@@ -122,7 +122,8 @@ func (m DBConfigModel) Update(msg tea.Msg) (DBConfigModel, tea.Cmd) {
 					m.confirmPassword.SetValue("")
 					return m, nil
 				}
-				if _, err := m.v.ChangePassword(m.oldPassword.Value(), m.newPassword.Value()); err != nil {
+				cmds, err := m.db.ChangePassword(m.oldPassword.Value(), m.newPassword.Value())
+				if err != nil {
 					m.err = err
 					m.oldPassword.SetValue("")
 					m.newPassword.SetValue("")
@@ -135,7 +136,7 @@ func (m DBConfigModel) Update(msg tea.Msg) (DBConfigModel, tea.Cmd) {
 				m.oldPassword.SetValue("")
 				m.newPassword.SetValue("")
 				m.confirmPassword.SetValue("")
-				return m, func() tea.Msg { return PasswordChangedMsg{} }
+				return m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return PasswordChangedMsg{} }}, cmds...)...)
 			case "esc":
 				m.state = dbConfigChangeNewPassword
 				m.confirmPassword.Blur()
@@ -170,11 +171,12 @@ func (m DBConfigModel) View() string {
 		inputW = 20
 	}
 
+	hdr := m.db.Config()
+
 	switch m.state {
 	case dbConfigMenu:
-		argon2 := m.v.Hdr.Argon2
+		argon2 := hdr.Argon2
 		b.WriteString(fmt.Sprintf("Path: %s\n", m.dbPath))
-		b.WriteString(fmt.Sprintf("Compression: %s\n", compressionName(m.v.Hdr.CompressionID)))
 		b.WriteString(fmt.Sprintf("Argon2id: time=%d memory=%d parallelism=%d\n",
 			argon2.TimeCost, argon2.MemoryCost, argon2.Parallelism))
 		b.WriteString("\n")
@@ -213,17 +215,6 @@ func (m DBConfigModel) View() string {
 		Width(width).
 		Height(height).
 		Render(b.String())
-}
-
-func compressionName(id uint8) string {
-	switch id {
-	case vault.CompressionNone:
-		return "None"
-	case vault.CompressionDEFLATE:
-		return "DEFLATE"
-	default:
-		return fmt.Sprintf("Unknown(%d)", id)
-	}
 }
 
 func (m *DBConfigModel) SetSize(w, h int) {

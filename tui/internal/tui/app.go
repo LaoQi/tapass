@@ -2,8 +2,7 @@ package tui
 
 import (
 	"github.com/charmbracelet/bubbletea"
-	"github.com/tapass/tapass-tui/internal/store"
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/tapass/tapass-tui/internal/model"
 )
 
 type WindowState int
@@ -16,11 +15,9 @@ const (
 )
 
 type AppModel struct {
-	state   WindowState
-	store   store.Store
-	vault   *vault.Vault
-	entries map[string]vault.Entry
-	dbPath  string
+	state  WindowState
+	db     *model.DB
+	dbPath string
 
 	welcome  WelcomeModel
 	mainview MainViewModel
@@ -31,10 +28,9 @@ type AppModel struct {
 	err      error
 }
 
-func NewApp(s store.Store) AppModel {
+func NewApp() AppModel {
 	return AppModel{
 		state:   StateWelcome,
-		store:   s,
 		welcome: NewWelcomeModel(),
 	}
 }
@@ -70,80 +66,58 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyMsg:
+		if msg.String() == "c" && m.state == StateMainView {
+			return m, func() tea.Msg { return OpenDBConfigMsg{} }
+		}
 
 	case OpenVaultMsg:
-		m.vault = msg.Vault
+		m.db = msg.DB
 		m.dbPath = msg.Path
-		m.entries = m.vault.List()
 		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
+		m.mainview = NewMainViewModel(m.db, m.dbPath, "", m.width, m.height)
 		m = m.propagateSize()
 		return m, nil
 
 	case CreateVaultMsg:
-		m.vault = msg.Vault
+		m.db = msg.DB
 		m.dbPath = msg.Path
-		m.entries = m.vault.List()
 		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
+		m.mainview = NewMainViewModel(m.db, m.dbPath, "", m.width, m.height)
 		m = m.propagateSize()
 		return m, nil
 
 	case BackToMainMsg:
 		m.state = StateMainView
-		m.entries = m.vault.List()
-		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
+		m.mainview.refreshPanels()
 		m = m.propagateSize()
 		return m, nil
 
 	case OpenDBConfigMsg:
 		m.state = StateDBConfig
-		m.dbconfig = NewDBConfigModel(m.vault, m.dbPath)
+		m.dbconfig = NewDBConfigModel(m.db, m.dbPath)
 		m = m.propagateSize()
 		return m, nil
 
-	case EntryUpdatedMsg:
-		m.entries = m.vault.List()
-		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
+	case AttrChangedMsg:
+		m.mainview.refreshPanels()
 		m.mainview.SetDirty(true)
-		m.state = StateMainView
-		m = m.propagateSize()
 		return m, nil
 
 	case OpenNewEntryMsg:
 		m.state = StateNewEntry
 		currentPrefix := ""
-		if m.mainview.entries != nil {
+		if m.db != nil {
 			currentPrefix = m.mainview.CurrentPrefix()
 		}
-		m.newEntry = NewNewEntryDialog(currentPrefix, m.vault)
+		m.newEntry = NewNewEntryDialog(currentPrefix)
 		m = m.propagateSize()
 		return m, nil
 
 	case NewEntryCreatedMsg:
-		m.entries = m.vault.List()
 		m.state = StateMainView
-		prefix := modelParentPath(msg.EntryPathPrefix)
-		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, prefix, m.width, m.height)
-		m.mainview.SetDirty(true)
-		m = m.propagateSize()
-		return m, nil
-
-	case DeleteEntryMsg:
-		if m.vault != nil {
-			entryPath := m.mainview.SelectedEntryPath()
-			if entryPath != "" {
-				prefix := entryPath + "/"
-				for key := range m.entries {
-					if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-						m.vault.Delete(key)
-					}
-				}
-			}
-		}
-		m.entries = m.vault.List()
-		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.entries, m.vault, m.dbPath, "", m.width, m.height)
+		prefix := model.ParentPath(msg.EntryPathPrefix)
+		m.mainview.SetCurrentPrefix(prefix)
+		m.mainview.refreshPanels()
 		m.mainview.SetDirty(true)
 		m = m.propagateSize()
 		return m, nil
@@ -152,6 +126,32 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateMainView
 		m.mainview.SetDirty(true)
 		m = m.propagateSize()
+		return m, nil
+
+	case SaveVaultMsg:
+		if m.db == nil {
+			return m, nil
+		}
+		if err := m.db.Save(); err != nil {
+			return m, func() tea.Msg { return ErrorMsg{Err: err} }
+		}
+		return m, func() tea.Msg { return VaultSavedMsg{QuitAfter: false} }
+
+	case SaveAndQuitMsg:
+		if m.db == nil {
+			return m, tea.Quit
+		}
+		if err := m.db.Save(); err != nil {
+			m.mainview.pendingQuit = false
+			return m, func() tea.Msg { return ErrorMsg{Err: err} }
+		}
+		return m, func() tea.Msg { return VaultSavedMsg{QuitAfter: true} }
+
+	case VaultSavedMsg:
+		m.mainview.SetDirty(false)
+		if msg.QuitAfter {
+			return m, tea.Quit
+		}
 		return m, nil
 
 	case ErrorMsg:
@@ -187,11 +187,6 @@ func (m AppModel) View() string {
 	return ""
 }
 
-func (m *AppModel) SetStore(s store.Store) {
-	m.store = s
-	m.welcome.SetStore(s)
-}
-
 func (m AppModel) propagateSize() AppModel {
 	w := m.width
 	h := m.height
@@ -206,48 +201,39 @@ func (m AppModel) propagateSize() AppModel {
 	return m
 }
 
-func modelParentPath(path string) string {
-	if path == "" {
-		return ""
-	}
-	lastSlash := -1
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			lastSlash = i
-			break
-		}
-	}
-	if lastSlash <= 0 {
-		return ""
-	}
-	return path[:lastSlash]
-}
-
 type OpenVaultMsg struct {
-	Vault *vault.Vault
-	Path  string
+	DB   *model.DB
+	Path string
 }
 
 type CreateVaultMsg struct {
-	Vault *vault.Vault
-	Path  string
+	DB   *model.DB
+	Path string
 }
 
 type BackToMainMsg struct{}
 
 type OpenDBConfigMsg struct{}
 
-type EntryUpdatedMsg struct{}
+type AttrChangedMsg struct {
+	Key string
+}
 
 type OpenNewEntryMsg struct{}
-
-type DeleteEntryMsg struct{}
 
 type PasswordChangedMsg struct{}
 
 type NewEntryCreatedMsg struct {
 	EntryPathPrefix string
 	GroupPath       string
+}
+
+type SaveVaultMsg struct{}
+
+type SaveAndQuitMsg struct{}
+
+type VaultSavedMsg struct {
+	QuitAfter bool
 }
 
 type ErrorMsg struct {

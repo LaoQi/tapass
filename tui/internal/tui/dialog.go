@@ -8,21 +8,19 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tapass/tapass-tui/internal/model"
-	"github.com/tapass/tapass-tools/vault"
 )
 
 type NewEntryDialogModel struct {
 	idInput       textinput.Model
 	pathInput     textinput.Model
 	currentPrefix string
-	v             *vault.Vault
 	step          int
 	err           error
 	width         int
 	height        int
 }
 
-func NewNewEntryDialog(currentPrefix string, v *vault.Vault) NewEntryDialogModel {
+func NewNewEntryDialog(currentPrefix string) NewEntryDialogModel {
 	pathInput := textinput.New()
 	pathInput.Placeholder = "group/subgroup"
 	pathInput.CharLimit = 256
@@ -37,7 +35,6 @@ func NewNewEntryDialog(currentPrefix string, v *vault.Vault) NewEntryDialogModel
 		pathInput:     pathInput,
 		idInput:       idInput,
 		currentPrefix: currentPrefix,
-		v:             v,
 		step:          0,
 	}
 }

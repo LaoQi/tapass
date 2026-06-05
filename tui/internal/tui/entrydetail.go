@@ -17,7 +17,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/tapass/tapass-tui/internal/model"
 )
 
 type detailState int
@@ -26,31 +26,32 @@ const (
 	detailView detailState = iota
 	detailEditAttr
 	detailAddAttr
+	detailConfirmDelete
 )
 
 type tickMsg struct{}
 
 type EntryDetailModel struct {
-	entryPath     string
-	entries       map[string]vault.Entry
-	v             *vault.Vault
-	state         detailState
-	selectedAttr  string
-	selectedEntry *vault.Entry
-	editInput     textinput.Model
-	editKey       string
-	newKeyInput   textinput.Model
-	totpCode      string
+	entryPath    string
+	db           *model.DB
+	state        detailState
+	selectedAttr string
+	selectedEntry *model.Entry
+	editInput    textinput.Model
+	editKey      string
+	newKeyInput  textinput.Model
+	totpCode     string
 	totpRemaining int
-	totpDigits    int
-	totpPeriod    int
-	err           error
-	width         int
-	height        int
-	focused       bool
+	totpDigits   int
+	totpPeriod   int
+	err          error
+	pendingDeleteKey string
+	width        int
+	height       int
+	focused      bool
 }
 
-func NewEntryDetailModel(entryPath string, entries map[string]vault.Entry, v *vault.Vault) EntryDetailModel {
+func NewEntryDetailModel(entryPath string, db *model.DB) EntryDetailModel {
 	editInput := textinput.New()
 	editInput.CharLimit = 4096
 
@@ -59,11 +60,10 @@ func NewEntryDetailModel(entryPath string, entries map[string]vault.Entry, v *va
 	newKeyInput.CharLimit = 256
 
 	return EntryDetailModel{
-		entryPath:  entryPath,
-		entries:    entries,
-		v:          v,
-		state:      detailView,
-		editInput:  editInput,
+		entryPath:   entryPath,
+		db:          db,
+		state:       detailView,
+		editInput:   editInput,
 		newKeyInput: newKeyInput,
 	}
 }
@@ -81,16 +81,20 @@ func (m EntryDetailModel) State() detailState {
 	return m.state
 }
 
+func (m *EntryDetailModel) HasSelectedEntry() bool {
+	return m.selectedEntry != nil
+}
+
 func (m *EntryDetailModel) SelectAttr(name string) {
 	m.selectedAttr = name
 	m.selectedEntry = nil
 
-	if m.entryPath == "" || m.entries == nil || name == "" {
+	if m.entryPath == "" || m.db == nil || name == "" {
 		return
 	}
 
 	fullKey := m.entryPath + "/" + name
-	if e, ok := m.entries[fullKey]; ok {
+	if e, ok := m.db.Get(fullKey); ok {
 		m.selectedEntry = &e
 		if name == "TOTP" {
 			m.updateTOTP()
@@ -253,28 +257,29 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 				m.newKeyInput.Focus()
 				return m, nil
 			case "d":
-				if m.selectedEntry != nil && m.v != nil {
-					fullKey := m.entryPath + "/" + m.selectedAttr
-					m.v.Delete(fullKey)
-					m.selectedEntry = nil
-					m.selectedAttr = ""
-					return m, func() tea.Msg { return EntryUpdatedMsg{} }
-				}
+			if m.selectedEntry != nil && m.db != nil {
+				m.pendingDeleteKey = m.entryPath + "/" + m.selectedAttr
+				m.state = detailConfirmDelete
+				return m, nil
+			}
 			}
 
 		case detailEditAttr:
 			switch msg.String() {
 			case "enter":
-				if m.v != nil {
+				if m.db != nil {
 					fullKey := m.entryPath + "/" + m.editKey
-					m.v.Set(fullKey, []byte(m.editInput.Value()))
+					cmds := m.db.Set(fullKey, []byte(m.editInput.Value()))
 					if m.selectedAttr == m.editKey {
 						m.SelectAttr(m.editKey)
 					}
+					m.state = detailView
+					m.editInput.Blur()
+					return m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
 				}
 				m.state = detailView
 				m.editInput.Blur()
-				return m, func() tea.Msg { return EntryUpdatedMsg{} }
+				return m, nil
 			case "esc":
 				m.state = detailView
 				m.editInput.Blur()
@@ -303,6 +308,27 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 			}
 			m.newKeyInput, cmd = m.newKeyInput.Update(msg)
 			return m, cmd
+
+		case detailConfirmDelete:
+			switch msg.String() {
+			case "d", "y":
+				if m.db != nil && m.pendingDeleteKey != "" {
+					fullKey := m.pendingDeleteKey
+					cmds := m.db.Delete(fullKey)
+					m.selectedEntry = nil
+					m.selectedAttr = ""
+					m.pendingDeleteKey = ""
+					m.state = detailView
+					return m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
+				}
+				m.pendingDeleteKey = ""
+				m.state = detailView
+				return m, nil
+			default:
+				m.pendingDeleteKey = ""
+				m.state = detailView
+				return m, nil
+			}
 		}
 	}
 
@@ -443,6 +469,11 @@ func (m EntryDetailModel) renderEditView(b *strings.Builder, width, height int) 
 		b.WriteString(inputStyle.Width(editWidth).Render(m.newKeyInput.View()))
 		b.WriteString("\n")
 		b.WriteString(menuStyle.Render("[enter] next  [esc] cancel"))
+
+	case detailConfirmDelete:
+		b.WriteString(errorStyle.Render("Confirm delete?"))
+		b.WriteString("\n\n")
+		b.WriteString(menuStyle.Render("[d/y] confirm  [any] cancel"))
 	}
 
 	if m.err != nil {
@@ -468,11 +499,4 @@ func (m *EntryDetailModel) SetSize(w, h int) {
 
 func (m *EntryDetailModel) SetFocused(f bool) {
 	m.focused = f
-}
-
-func (m *EntryDetailModel) RefreshFromEntries(entries map[string]vault.Entry) {
-	m.entries = entries
-	if m.selectedAttr != "" {
-		m.SelectAttr(m.selectedAttr)
-	}
 }

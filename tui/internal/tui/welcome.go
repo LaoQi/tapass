@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/tapass/tapass-tui/internal/store"
+	"github.com/tapass/tapass-tui/internal/model"
 )
 
 type WelcomeState int
@@ -26,7 +26,6 @@ const (
 
 type WelcomeModel struct {
 	state         WelcomeState
-	store         store.Store
 	pathInput     textinput.Model
 	passwordInput textinput.Model
 	confirmInput  textinput.Model
@@ -110,14 +109,14 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 		case WelcomeOpenPassword:
 			switch msg.String() {
 			case "enter":
-				v, err := m.store.Open(m.pathInput.Value(), m.passwordInput.Value())
+				db, err := model.OpenDB(m.pathInput.Value(), m.passwordInput.Value())
 				if err != nil {
 					m.err = err
 					m.passwordInput.SetValue("")
 					return m, nil
 				}
 				return m, func() tea.Msg {
-					return OpenVaultMsg{Vault: v, Path: m.pathInput.Value()}
+					return OpenVaultMsg{DB: db, Path: m.pathInput.Value()}
 				}
 			case "esc":
 				m.state = WelcomeOpenPath
@@ -171,17 +170,13 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 					m.confirmInput.SetValue("")
 					return m, nil
 				}
-				if err := m.store.Create(m.pathInput.Value(), m.passwordInput.Value()); err != nil {
-					m.err = err
-					return m, nil
-				}
-				v, err := m.store.Open(m.pathInput.Value(), m.passwordInput.Value())
+				db, err := model.CreateDB(m.pathInput.Value(), m.passwordInput.Value())
 				if err != nil {
 					m.err = err
 					return m, nil
 				}
 				return m, func() tea.Msg {
-					return CreateVaultMsg{Vault: v, Path: m.pathInput.Value()}
+					return CreateVaultMsg{DB: db, Path: m.pathInput.Value()}
 				}
 			case "esc":
 				m.state = WelcomeNewPassword
@@ -389,10 +384,6 @@ func commonPrefix(strs []string) string {
 		}
 	}
 	return p
-}
-
-func (m *WelcomeModel) SetStore(s store.Store) {
-	m.store = s
 }
 
 func (m *WelcomeModel) SetSize(w, h int) {

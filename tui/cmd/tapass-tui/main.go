@@ -5,7 +5,6 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/tapass/tapass-tui/internal/store/local"
 	"github.com/tapass/tapass-tui/internal/tui"
 )
 
@@ -15,9 +14,7 @@ func main() {
 		dbPath = os.Args[1]
 	}
 
-	store := local.New()
-	app := tui.NewApp(store)
-	app.SetStore(store)
+	app := tui.NewApp()
 	app.SetInitialDBPath(dbPath)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())

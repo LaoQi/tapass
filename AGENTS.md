@@ -17,8 +17,7 @@ tapass/
 └── tui/            # TUI 客户端（独立 Go 模块）
     ├── cmd/tapass-tui/
     └── internal/
-        ├── store/            # 存储抽象层
-        ├── model/            # 内存数据模型
+        ├── model/            # 数据层（DB + 工具函数）
         └── tui/              # Bubble Tea 视图层
 ```
 

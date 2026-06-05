@@ -39,4 +39,10 @@ var (
 
 	timestampStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6B7280"))
+
+	keyEnabledStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E5E7EB"))
+
+	keyDisabledStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#4B5563"))
 )

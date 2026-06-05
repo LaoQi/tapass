@@ -2,17 +2,16 @@ package tui
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tapass/tapass-tui/internal/model"
-	"github.com/tapass/tapass-tools/vault"
 )
 
 type MainViewModel struct {
-	entries       map[string]vault.Entry
-	vault         *vault.Vault
+	db            *model.DB
 	dbPath        string
 	currentPrefix string
 	selectedEntry string
@@ -24,11 +23,10 @@ type MainViewModel struct {
 	focus      mainFocus
 	totpActive bool
 	dirty      bool
+	pendingQuit bool
 
 	width  int
 	height int
-
-	pendingDelete bool
 }
 
 type mainFocus int
@@ -54,6 +52,14 @@ var (
 				Bold(true)
 )
 
+func isDetailKey(key string) bool {
+	switch key {
+	case "e", "a", "d":
+		return true
+	}
+	return false
+}
+
 func clampInt(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -64,10 +70,9 @@ func clampInt(v, lo, hi int) int {
 	return v
 }
 
-func NewMainViewModel(entries map[string]vault.Entry, v *vault.Vault, dbPath string, prefix string, w, h int) MainViewModel {
+func NewMainViewModel(db *model.DB, dbPath string, prefix string, w, h int) MainViewModel {
 	m := MainViewModel{
-		entries:       entries,
-		vault:         v,
+		db:            db,
 		dbPath:        dbPath,
 		currentPrefix: prefix,
 		focus:         focusLeft,
@@ -75,10 +80,15 @@ func NewMainViewModel(entries map[string]vault.Entry, v *vault.Vault, dbPath str
 		height:        h,
 	}
 
-	leftItems := model.ListChildren(entries, prefix)
+	m.refreshPanels()
+	return m
+}
+
+func (m *MainViewModel) refreshPanels() {
+	leftItems := m.queryToListItems(m.currentPrefix)
 	leftTitle := "/"
-	if prefix != "" {
-		leftTitle = prefix
+	if m.currentPrefix != "" {
+		leftTitle = m.currentPrefix
 	}
 	m.leftPanel = NewPanelListModel(leftTitle, leftItems)
 
@@ -87,25 +97,62 @@ func NewMainViewModel(entries map[string]vault.Entry, v *vault.Vault, dbPath str
 	if len(leftItems) > 0 {
 		selected := leftItems[0]
 		middleTitle = selected.Name
-		middleItems = model.ListChildren(entries, selected.FullPath)
 		if selected.IsEntry {
-			middleItems = attrsToListItems(entries, selected.FullPath)
+			middleItems = m.attrsToListItems(selected.FullPath)
+		} else {
+			middleItems = m.queryToListItems(selected.FullPath)
 		}
 	}
 	m.middlePanel = NewPanelListModel(middleTitle, middleItems)
 
-	m.rightPanel = NewEntryDetailModel("", entries, v)
-
-	return m
+	m.rightPanel = NewEntryDetailModel("", m.db)
 }
 
-func attrsToListItems(entries map[string]vault.Entry, entryPath string) []model.ListItem {
-	attrs := model.GetEntryAttrs(entries, entryPath)
-	items := make([]model.ListItem, 0, len(attrs))
-	for name := range attrs {
+func (m *MainViewModel) queryToListItems(prefix string) []model.ListItem {
+	keys := m.db.QueryKeys(prefix)
+	seen := make(map[string]bool)
+	items := make([]model.ListItem, 0)
+
+	for _, key := range keys {
+		rest := strings.TrimPrefix(key, prefix+"/")
+		name := rest
+		if idx := strings.Index(rest, "/"); idx >= 0 {
+			name = rest[:idx]
+		}
+		fullPath := prefix + "/" + name
+		if seen[fullPath] {
+			continue
+		}
+		seen[fullPath] = true
+		isEntry := m.db.HasChildEntries(fullPath)
 		items = append(items, model.ListItem{
 			Name:     name,
-			FullPath: entryPath + "/" + name,
+			FullPath: fullPath,
+			IsEntry:  isEntry,
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].IsEntry != items[j].IsEntry {
+			return !items[i].IsEntry
+		}
+		return items[i].Name < items[j].Name
+	})
+
+	return items
+}
+
+func (m *MainViewModel) attrsToListItems(entryPath string) []model.ListItem {
+	keys := m.db.QueryKeys(entryPath)
+	items := make([]model.ListItem, 0)
+	for _, key := range keys {
+		rest := strings.TrimPrefix(key, entryPath+"/")
+		if rest == "" || strings.Contains(rest, "/") {
+			continue
+		}
+		items = append(items, model.ListItem{
+			Name:     rest,
+			FullPath: key,
 			IsAttr:   true,
 		})
 	}
@@ -130,7 +177,7 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 
 	case tickMsg:
 		m.rightPanel, cmd = m.rightPanel.Update(msg)
-		if m.rightPanel.selectedAttr == "TOTP" && m.rightPanel.selectedEntry != nil {
+		if m.rightPanel.selectedAttr == "TOTP" && m.rightPanel.HasSelectedEntry() {
 			return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 				return tickMsg{}
 			})
@@ -139,22 +186,24 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.pendingDelete {
+		if m.pendingQuit {
 			switch msg.String() {
-			case "d", "y":
-				m.pendingDelete = false
-				if m.selectedEntry != "" {
-					return m, func() tea.Msg { return DeleteEntryMsg{} }
-				}
+			case "y":
+				m.pendingQuit = false
+				return m, func() tea.Msg { return SaveAndQuitMsg{} }
+			case "n":
+				return m, tea.Quit
 			default:
-				m.pendingDelete = false
+				m.pendingQuit = false
+				return m, nil
 			}
-			return m, nil
 		}
 
-		if m.focus == focusRight && m.rightPanel.State() != detailView {
-			m.rightPanel, cmd = m.rightPanel.Update(msg)
-			return m, cmd
+		if m.focus == focusRight {
+			if m.rightPanel.State() != detailView || isDetailKey(msg.String()) {
+				m.rightPanel, cmd = m.rightPanel.Update(msg)
+				return m, cmd
+			}
 		}
 
 		switch msg.String() {
@@ -172,21 +221,23 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 				m.focus = focusLeft
 			}
 		case "ctrl+s":
-			return m, func() tea.Msg { return OpenDBConfigMsg{} }
+			if m.dirty {
+				return m, func() tea.Msg { return SaveVaultMsg{} }
+			}
 		case "n":
 			return m, func() tea.Msg { return OpenNewEntryMsg{} }
-		case "d":
-			if m.selectedEntry != "" {
-				m.pendingDelete = true
-			}
 		case "q":
+			if m.dirty {
+				m.pendingQuit = true
+				return m, nil
+			}
 			return m, tea.Quit
 		case "esc":
 			m = m.handleLeft()
 		}
 	}
 
-	if m.rightPanel.selectedAttr == "TOTP" && m.rightPanel.selectedEntry != nil && !m.totpActive {
+	if m.rightPanel.selectedAttr == "TOTP" && m.rightPanel.HasSelectedEntry() && !m.totpActive {
 		m.totpActive = true
 		m.rightPanel.updateTOTP()
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
@@ -251,8 +302,8 @@ func (m MainViewModel) handleRight() MainViewModel {
 		if selected.IsEntry {
 			m.selectedEntry = selected.FullPath
 			m.middlePanel.SetTitle(selected.Name)
-			m.middlePanel.SetItems(attrsToListItems(m.entries, selected.FullPath))
-			m.rightPanel = NewEntryDetailModel(selected.FullPath, m.entries, m.vault)
+			m.middlePanel.SetItems(m.attrsToListItems(selected.FullPath))
+			m.rightPanel = NewEntryDetailModel(selected.FullPath, m.db)
 			if m.middlePanel.ItemCount() > 0 {
 				attrItem := m.middlePanel.SelectedItem()
 				m.rightPanel.SelectAttr(attrItem.Name)
@@ -280,8 +331,8 @@ func (m MainViewModel) handleRight() MainViewModel {
 		if selected.IsEntry {
 			m.selectedEntry = selected.FullPath
 			m.middlePanel.SetTitle(selected.Name)
-			m.middlePanel.SetItems(attrsToListItems(m.entries, selected.FullPath))
-			m.rightPanel = NewEntryDetailModel(selected.FullPath, m.entries, m.vault)
+			m.middlePanel.SetItems(m.attrsToListItems(selected.FullPath))
+			m.rightPanel = NewEntryDetailModel(selected.FullPath, m.db)
 			if m.middlePanel.ItemCount() > 0 {
 				attrItem := m.middlePanel.SelectedItem()
 				m.rightPanel.SelectAttr(attrItem.Name)
@@ -303,7 +354,7 @@ func (m MainViewModel) handleRight() MainViewModel {
 }
 
 func (m *MainViewModel) refreshFromPrefix() {
-	leftItems := model.ListChildren(m.entries, m.currentPrefix)
+	leftItems := m.queryToListItems(m.currentPrefix)
 	leftTitle := "/"
 	if m.currentPrefix != "" {
 		leftTitle = m.currentPrefix
@@ -316,14 +367,14 @@ func (m *MainViewModel) refreshFromPrefix() {
 		selected := leftItems[0]
 		middleTitle = selected.Name
 		if selected.IsEntry {
-			middleItems = attrsToListItems(m.entries, selected.FullPath)
+			middleItems = m.attrsToListItems(selected.FullPath)
 		} else {
-			middleItems = model.ListChildren(m.entries, selected.FullPath)
+			middleItems = m.queryToListItems(selected.FullPath)
 		}
 	}
 	m.middlePanel = NewPanelListModel(middleTitle, middleItems)
 
-	m.rightPanel = NewEntryDetailModel("", m.entries, m.vault)
+	m.rightPanel = NewEntryDetailModel("", m.db)
 	m.focus = focusLeft
 }
 
@@ -332,7 +383,7 @@ func (m *MainViewModel) onLeftSelectionChange() {
 		m.selectedEntry = ""
 		m.middlePanel.SetTitle("")
 		m.middlePanel.SetItems(nil)
-		m.rightPanel = NewEntryDetailModel("", m.entries, m.vault)
+		m.rightPanel = NewEntryDetailModel("", m.db)
 		return
 	}
 
@@ -341,29 +392,80 @@ func (m *MainViewModel) onLeftSelectionChange() {
 	m.middlePanel.SetTitle(selected.Name)
 
 	if selected.IsEntry {
-		m.middlePanel.SetItems(attrsToListItems(m.entries, selected.FullPath))
+		m.middlePanel.SetItems(m.attrsToListItems(selected.FullPath))
 	} else {
-		m.middlePanel.SetItems(model.ListChildren(m.entries, selected.FullPath))
+		m.middlePanel.SetItems(m.queryToListItems(selected.FullPath))
 	}
 
-	m.rightPanel = NewEntryDetailModel("", m.entries, m.vault)
+	m.rightPanel = NewEntryDetailModel("", m.db)
 }
 
 func (m *MainViewModel) onMiddleSelectionChange() {
 	if m.middlePanel.ItemCount() == 0 {
-		m.rightPanel = NewEntryDetailModel("", m.entries, m.vault)
+		m.rightPanel = NewEntryDetailModel("", m.db)
 		return
 	}
 
 	selected := m.middlePanel.SelectedItem()
 
 	if m.selectedEntry != "" {
-		m.rightPanel = NewEntryDetailModel(m.selectedEntry, m.entries, m.vault)
+		m.rightPanel = NewEntryDetailModel(m.selectedEntry, m.db)
 		m.rightPanel.SelectAttr(selected.Name)
 		return
 	}
 
-	m.rightPanel = NewEntryDetailModel("", m.entries, m.vault)
+	m.rightPanel = NewEntryDetailModel("", m.db)
+}
+
+func (m MainViewModel) buildStatusBar() string {
+	if m.pendingQuit {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true).Render("[y] save & quit") + "  " +
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Bold(true).Render("[n] quit without saving") + "  " +
+			keyEnabledStyle.Render("[esc] cancel")
+	}
+
+	var parts []string
+
+	canNav := m.focus != focusRight || m.rightPanel.State() == detailView
+	canBack := m.focus == focusLeft && m.currentPrefix != "" || m.focus == focusMiddle || m.focus == focusRight
+	canOpen := canNav && (m.focus == focusLeft && m.leftPanel.ItemCount() > 0 || m.focus == focusMiddle && m.middlePanel.ItemCount() > 0)
+
+	if m.focus == focusRight {
+		switch m.rightPanel.State() {
+		case detailView:
+			canEdit := m.rightPanel.HasSelectedEntry()
+			parts = append(parts, m.renderKey("[e] edit", canEdit))
+			parts = append(parts, m.renderKey("[a] add", true))
+			parts = append(parts, m.renderKey("[d] delete", canEdit))
+			parts = append(parts, m.renderKey("[h] back", true))
+		case detailEditAttr:
+			return keyEnabledStyle.Render("[enter] save") + "  " + keyEnabledStyle.Render("[esc] cancel")
+		case detailAddAttr:
+			return keyEnabledStyle.Render("[enter] next") + "  " + keyEnabledStyle.Render("[esc] cancel")
+		case detailConfirmDelete:
+			return keyEnabledStyle.Render("[d/y] confirm") + "  " + keyEnabledStyle.Render("[any] cancel")
+		}
+	} else {
+		parts = append(parts, m.renderKey("[h] back", canBack))
+		parts = append(parts, m.renderKey("[l] open", canOpen))
+		parts = append(parts, m.renderKey("[j/k] nav", canNav && (m.focus == focusLeft && m.leftPanel.ItemCount() > 1 || m.focus == focusMiddle && m.middlePanel.ItemCount() > 1)))
+	}
+
+	parts = append(parts, m.renderKey("[n] new", true))
+	if m.dirty {
+		parts = append(parts, m.renderKey("[Ctrl+S] save", true))
+	}
+	parts = append(parts, m.renderKey("[c] config", true))
+	parts = append(parts, m.renderKey("[q] quit", true))
+
+	return strings.Join(parts, "  ")
+}
+
+func (m MainViewModel) renderKey(text string, enabled bool) string {
+	if enabled {
+		return keyEnabledStyle.Render(text)
+	}
+	return keyDisabledStyle.Render(text)
 }
 
 func (m MainViewModel) View() string {
@@ -412,11 +514,7 @@ func (m MainViewModel) View() string {
 	titleLine := titleStyle.Width(w).Render(titleText)
 
 	var statusText string
-	if m.pendingDelete {
-		statusText = errorStyle.Render("Confirm delete? [d/y] confirm  [any] cancel")
-	} else {
-		statusText = "[h] back  [l] open  [j/k] nav  [n] new  [d] delete  [Ctrl+S] settings  [q] quit"
-	}
+	statusText = m.buildStatusBar()
 	status := statusBarStyle.Width(w).Render(statusText)
 
 	return lipgloss.JoinVertical(lipgloss.Top, titleLine, mainContent, status)
@@ -431,8 +529,47 @@ func (m MainViewModel) CurrentPrefix() string {
 	return m.currentPrefix
 }
 
+func (m *MainViewModel) SetCurrentPrefix(prefix string) {
+	m.currentPrefix = prefix
+}
+
 func (m MainViewModel) SelectedEntryPath() string {
 	return m.selectedEntry
+}
+
+func (m *MainViewModel) RestoreSelection(entryPath string, focusPanel mainFocus) {
+	if entryPath == "" {
+		return
+	}
+
+	keys := m.db.QueryKeys(entryPath)
+	if len(keys) == 0 {
+		return
+	}
+
+	m.selectedEntry = entryPath
+
+	entryName := entryPath
+	if idx := strings.LastIndex(entryPath, "/"); idx >= 0 {
+		entryName = entryPath[idx+1:]
+	}
+
+	for i := 0; i < m.leftPanel.ItemCount(); i++ {
+		if m.leftPanel.items[i].FullPath == entryPath {
+			m.leftPanel.cursor = i
+			break
+		}
+	}
+
+	m.middlePanel.SetTitle(entryName)
+	m.middlePanel.SetItems(m.attrsToListItems(entryPath))
+	m.rightPanel = NewEntryDetailModel(entryPath, m.db)
+	if m.middlePanel.ItemCount() > 0 {
+		attrItem := m.middlePanel.SelectedItem()
+		m.rightPanel.SelectAttr(attrItem.Name)
+	}
+
+	m.focus = focusPanel
 }
 
 func (m *MainViewModel) SetDirty(d bool) {
