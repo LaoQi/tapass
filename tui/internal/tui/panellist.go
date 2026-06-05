@@ -101,15 +101,15 @@ func (m PanelListModel) View() string {
 	for i := start; i < end; i++ {
 		item := m.items[i]
 
-		icon := "📁 "
+		icon := "📂 "
 		if item.IsAttr {
-			icon = "🏷️ "
+			icon = "🔖 "
 		} else if item.IsEntry {
-			icon = "📝 "
+			icon = "📄 "
 		}
 
 		label := item.Name
-		maxLen := width - len(icon) - 3
+		maxLen := width - lipgloss.Width(icon) - 3
 		if maxLen > 0 && len(label) > maxLen {
 			label = label[:maxLen-1] + "…"
 		}
