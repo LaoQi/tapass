@@ -24,12 +24,12 @@ internal/
   tui/                      # Bubble Tea 视图层
     app.go                  # 主 Model + 窗口路由 + 消息类型（含 SaveVaultMsg/SaveAndQuitMsg/VaultSavedMsg/PasswordChangedMsg）
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）
-    mainview.go             # 三栏布局 + vim导航 + TOTP tick管理 + dirty标记 + 退出确认(pendingQuit)
+    mainview.go             # 三栏布局 + vim导航 + TOTP tick管理 + dirty标记 + 退出确认(pendingQuit) + copyClearMsg转发
     panellist.go            # 通用列表面板（分组/条目/属性图标，滚动跟随）
-    entrydetail.go          # 条目详情/编辑属性（单属性视图 + TOTP/Steam TOTP + 删除确认detailConfirmDelete）
+    entrydetail.go          # 条目详情/编辑属性（单属性视图 + TOTP/Steam TOTP + 复制到剪贴板 + 删除确认detailConfirmDelete）
     dbconfig.go             # 数据库设置（改密，成功发 PasswordChangedMsg）
     dialog.go               # 新建条目对话框
-    styles.go               # 共享样式（含 TOTP/进度条/dirty 标题/状态栏按键样式）
+    styles.go               # 共享样式（含 TOTP/进度条/dirty 标题/状态栏按键/复制成功样式）
 ```
 
 ## 依赖说明
@@ -93,3 +93,7 @@ internal/
 - `NewDB` 私有化为 `newDB`：外部通过 `OpenDB`/`CreateDB` 获取 DB 实例
 - 状态栏 `[c] config` 始终显示，`[Ctrl+S] save` 仅 dirty 时显示
 - 欢迎页居中排版，TAPASS ASCII art 紫色显示
+- 右侧面板查看模式下按 `y` 复制属性值到剪贴板：TOTP 属性复制当前验证码，其他属性复制原始值
+- 复制成功显示"已复制到剪贴板"提示（copySuccessStyle），1.5 秒后由 copyClearMsg 自动清除
+- copyClearMsg 由 entrydetail 产生，mainview 层转发，不跳过子组件路由
+- 切换条目/属性/状态时（SetEntryPath/SelectAttr/StartEdit/StartNew）自动清除复制提示

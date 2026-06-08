@@ -46,4 +46,8 @@ var (
 
 	keyDisabledStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#4B5563"))
+
+	copySuccessStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#34D399")).
+				Bold(true)
 )

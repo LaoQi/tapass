@@ -51,7 +51,7 @@ var (
 
 func isDetailKey(key string) bool {
 	switch key {
-	case "e", "d":
+	case "e", "d", "y":
 		return true
 	}
 	return false
@@ -149,6 +149,10 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 		}
 		m.totpActive = false
 		return m, nil
+
+	case copyClearMsg:
+		m.rightPanel, cmd = m.rightPanel.Update(msg)
+		return m, cmd
 
 	case tea.KeyPressMsg:
 		if m.pendingQuit {
@@ -366,6 +370,7 @@ func (m MainViewModel) buildStatusBar() string {
 		case detailView:
 			canEdit := m.rightPanel.HasSelectedEntry()
 			parts = append(parts, m.renderKey("[e] edit", canEdit))
+			parts = append(parts, m.renderKey("[y] copy", canEdit))
 			parts = append(parts, m.renderKey("[d] delete", canEdit))
 			parts = append(parts, m.renderKey("[h] back", true))
 		case detailEditKV:

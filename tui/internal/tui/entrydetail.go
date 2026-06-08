@@ -18,6 +18,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 	"github.com/mattn/go-runewidth"
 	"github.com/tapass/tapass-tui/internal/model"
 )
@@ -39,6 +40,8 @@ const (
 
 type tickMsg struct{}
 
+type copyClearMsg struct{}
+
 type EntryDetailModel struct {
 	entryPath    string
 	db           *model.DB
@@ -55,9 +58,10 @@ type EntryDetailModel struct {
 	totpPeriod   int
 	err          error
 	pendingDeleteKey string
-	width        int
-	height       int
-	focused      bool
+	copySuccess      bool
+	width            int
+	height           int
+	focused          bool
 }
 
 func NewEntryDetailModel(entryPath string, db *model.DB) EntryDetailModel {
@@ -85,6 +89,7 @@ func (m *EntryDetailModel) SetEntryPath(path string) {
 	m.selectedAttr = ""
 	m.selectedEntry = nil
 	m.state = detailView
+	m.copySuccess = false
 }
 
 func (m *EntryDetailModel) EntryPath() string {
@@ -144,6 +149,7 @@ func (m *EntryDetailModel) HasSelectedEntry() bool {
 func (m *EntryDetailModel) SelectAttr(name string) {
 	m.selectedAttr = name
 	m.selectedEntry = nil
+	m.copySuccess = false
 
 	if m.entryPath == "" || m.db == nil || name == "" {
 		return
@@ -172,6 +178,7 @@ func (m *EntryDetailModel) StartEdit() {
 	m.valueArea.Focus()
 	m.valueArea.CursorEnd()
 	m.err = nil
+	m.copySuccess = false
 }
 
 func (m *EntryDetailModel) StartNew(prefix string) {
@@ -187,6 +194,7 @@ func (m *EntryDetailModel) StartNew(prefix string) {
 	m.valueArea.SetValue("")
 	m.valueArea.Blur()
 	m.err = nil
+	m.copySuccess = false
 }
 
 type totpParams struct {
@@ -328,6 +336,9 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 			})
 		}
 
+	case copyClearMsg:
+		m.copySuccess = false
+
 	case tea.KeyPressMsg:
 		m.err = nil
 		switch m.state {
@@ -338,6 +349,20 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 					m.StartEdit()
 					m.resizeEditor()
 					return m, nil
+				}
+			case "y":
+				if m.selectedEntry != nil {
+					var copyText string
+					if m.selectedAttr == "TOTP" {
+						copyText = m.totpCode
+					} else {
+						copyText = string(m.selectedEntry.Value)
+					}
+					_ = clipboard.WriteAll(copyText)
+					m.copySuccess = true
+					return m, tea.Tick(1500*time.Millisecond, func(t time.Time) tea.Msg {
+						return copyClearMsg{}
+					})
 				}
 			case "d":
 				if m.selectedEntry != nil && m.db != nil {
@@ -503,6 +528,11 @@ func (m EntryDetailModel) View() string {
 		m.renderTOTPView(&b, width)
 	} else {
 		m.renderTextView(&b, width, height)
+	}
+
+	if m.copySuccess {
+		b.WriteString("\n")
+		b.WriteString(copySuccessStyle.Render("已复制到剪贴板"))
 	}
 
 	return m.wrapBorder(b.String(), width, height)
