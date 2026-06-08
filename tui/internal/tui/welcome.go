@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/tapass/tapass-tui/internal/model"
 )
 
@@ -70,7 +70,7 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		m.err = nil
 		switch m.state {
 		case WelcomeSelect:

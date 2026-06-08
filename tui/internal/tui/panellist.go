@@ -2,13 +2,27 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/tapass/tapass-tui/internal/model"
 )
 
+const iconDisplayWidth = 3
+
+type panelMode int
+
+const (
+	modeGroup panelMode = iota
+	modeAttr
+)
+
 type PanelListModel struct {
+	db      *model.DB
+	prefix  string
+	mode    panelMode
 	items   []model.ListItem
 	cursor  int
 	width   int
@@ -44,11 +58,181 @@ var (
 				Bold(true)
 )
 
-func NewPanelListModel(title string, items []model.ListItem) PanelListModel {
-	return PanelListModel{
-		title:  title,
-		items:  items,
-		cursor: 0,
+func truncateString(s string, maxWidth int) string {
+	var b strings.Builder
+	cur := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if cur+rw > maxWidth {
+			break
+		}
+		b.WriteRune(r)
+		cur += rw
+	}
+	return b.String()
+}
+
+func NewPanelListModel(db *model.DB, prefix string, mode panelMode) PanelListModel {
+	m := PanelListModel{
+		db:     db,
+		prefix: prefix,
+		mode:   mode,
+	}
+	m.deriveTitle()
+	m.doQuery(true)
+	return m
+}
+
+func (m *PanelListModel) deriveTitle() {
+	if m.mode == modeAttr {
+		if m.prefix == "" {
+			m.title = ""
+			return
+		}
+		if idx := strings.LastIndex(m.prefix, "/"); idx >= 0 {
+			m.title = m.prefix[idx+1:]
+		} else {
+			m.title = m.prefix
+		}
+		return
+	}
+	if m.prefix == "" {
+		m.title = "/"
+	} else {
+		m.title = m.prefix
+	}
+}
+
+func (m *PanelListModel) doQuery(resetCursor bool) {
+	if m.db == nil {
+		m.items = nil
+		m.cursor = 0
+		return
+	}
+
+	var savedPath string
+	if !resetCursor && m.cursor < len(m.items) {
+		savedPath = m.items[m.cursor].FullPath
+	}
+
+	switch m.mode {
+	case modeGroup:
+		m.items = m.queryGroupItems()
+	case modeAttr:
+		m.items = m.queryAttrItems()
+	default:
+		m.items = nil
+	}
+
+	if resetCursor || savedPath == "" {
+		m.cursor = 0
+		if m.cursor >= len(m.items) {
+			m.cursor = 0
+		}
+		return
+	}
+
+	m.cursor = 0
+	for i, item := range m.items {
+		if item.FullPath == savedPath {
+			m.cursor = i
+			break
+		}
+	}
+}
+
+func (m *PanelListModel) queryGroupItems() []model.ListItem {
+	keys := m.db.QueryKeys(m.prefix)
+	seen := make(map[string]bool)
+	items := make([]model.ListItem, 0)
+
+	for _, key := range keys {
+		rest := strings.TrimPrefix(key, m.prefix+"/")
+		name := rest
+		if idx := strings.Index(rest, "/"); idx >= 0 {
+			name = rest[:idx]
+		}
+		fullPath := m.prefix + "/" + name
+		if seen[fullPath] {
+			continue
+		}
+		seen[fullPath] = true
+		isEntry := m.db.HasChildEntries(fullPath)
+		items = append(items, model.ListItem{
+			Name:     name,
+			FullPath: fullPath,
+			IsEntry:  isEntry,
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].IsEntry != items[j].IsEntry {
+			return !items[i].IsEntry
+		}
+		return items[i].Name < items[j].Name
+	})
+
+	return items
+}
+
+func (m *PanelListModel) queryAttrItems() []model.ListItem {
+	keys := m.db.QueryKeys(m.prefix)
+	items := make([]model.ListItem, 0)
+	for _, key := range keys {
+		rest := strings.TrimPrefix(key, m.prefix+"/")
+		if rest == "" || strings.Contains(rest, "/") {
+			continue
+		}
+		items = append(items, model.ListItem{
+			Name:     rest,
+			FullPath: key,
+			IsAttr:   true,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	})
+	return items
+}
+
+func (m *PanelListModel) SetDB(db *model.DB) {
+	m.db = db
+	m.doQuery(true)
+}
+
+func (m *PanelListModel) SetPrefix(prefix string) {
+	m.prefix = prefix
+	m.deriveTitle()
+	m.doQuery(true)
+}
+
+func (m *PanelListModel) SetMode(mode panelMode) {
+	m.mode = mode
+	m.deriveTitle()
+	m.doQuery(true)
+}
+
+func (m *PanelListModel) Prefix() string {
+	return m.prefix
+}
+
+func (m *PanelListModel) Mode() panelMode {
+	return m.mode
+}
+
+func (m *PanelListModel) Refresh() {
+	m.doQuery(false)
+}
+
+func (m *PanelListModel) HandleEvent(evt model.Event) {
+	switch evt.Type {
+	case model.EventAttrSet, model.EventAttrDeleted:
+		if m.prefix == "" {
+			return
+		}
+		if strings.HasPrefix(evt.Key, m.prefix+"/") {
+			m.doQuery(false)
+		}
 	}
 }
 
@@ -72,10 +256,13 @@ func (m PanelListModel) View() string {
 	}
 
 	titleLine := fmt.Sprintf(" %s", m.title)
-	if len(titleLine) > width-2 {
-		titleLine = titleLine[:width-3] + "…"
+	contentWidth := width - 2
+	maxTitleWidth := contentWidth - 1
+	if runewidth.StringWidth(titleLine) > contentWidth {
+		titleLine = truncateString(titleLine, maxTitleWidth) + "…"
 	}
-	b.WriteString(titleStyle.Width(width - 2).Render(titleLine))
+	// lipgloss border Width(w) 实际可用为 w-2（2列内部开销），因此标题渲染宽度需减2
+	b.WriteString(titleStyle.Width(contentWidth - 2).Render(titleLine))
 	b.WriteString("\n")
 
 	if len(m.items) == 0 {
@@ -109,9 +296,11 @@ func (m PanelListModel) View() string {
 		}
 
 		label := item.Name
-		maxLen := width - lipgloss.Width(icon) - 3
-		if maxLen > 0 && len(label) > maxLen {
-			label = label[:maxLen-1] + "…"
+		// lipgloss border 设置 Width(w-2) 时实际可用内容宽度为 w-4（2列边框+2列内部开销），
+		// 因此 label 最大宽度 = (w-4) - iconDisplayWidth = w - 5 - iconDisplayWidth
+		maxLen := width - 5 - iconDisplayWidth
+		if maxLen > 0 && runewidth.StringWidth(label) > maxLen {
+			label = truncateString(label, maxLen-1) + "…"
 		}
 
 		line := icon + label
@@ -148,26 +337,6 @@ func (m PanelListModel) SelectedItem() model.ListItem {
 	return model.ListItem{}
 }
 
-func (m *PanelListModel) SetItems(items []model.ListItem) {
-	m.items = items
-	if m.cursor >= len(m.items) {
-		m.cursor = 0
-	}
-}
-
-func (m *PanelListModel) SetTitle(title string) {
-	m.title = title
-}
-
-func (m *PanelListModel) SetSize(w, h int) {
-	m.width = w
-	m.height = h
-}
-
-func (m *PanelListModel) SetFocused(f bool) {
-	m.focused = f
-}
-
 func (m PanelListModel) ItemCount() int {
 	return len(m.items)
 }
@@ -182,4 +351,13 @@ func (m *PanelListModel) MoveDown() {
 	if m.cursor < len(m.items)-1 {
 		m.cursor++
 	}
+}
+
+func (m *PanelListModel) SetSize(w, h int) {
+	m.width = w
+	m.height = h
+}
+
+func (m *PanelListModel) SetFocused(f bool) {
+	m.focused = f
 }

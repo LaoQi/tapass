@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/lipgloss/v2"
 	"github.com/tapass/tapass-tui/internal/model"
 )
 
@@ -69,7 +69,7 @@ func (m DBConfigModel) Update(msg tea.Msg) (DBConfigModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		m.err = nil
 		m.success = false
 		switch m.state {

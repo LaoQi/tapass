@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbletea"
+	"charm.land/bubbletea/v2"
 	"github.com/tapass/tapass-tui/internal/model"
 )
 
@@ -11,7 +11,6 @@ const (
 	StateWelcome WindowState = iota
 	StateMainView
 	StateDBConfig
-	StateNewEntry
 )
 
 type AppModel struct {
@@ -22,7 +21,6 @@ type AppModel struct {
 	welcome  WelcomeModel
 	mainview MainViewModel
 	dbconfig DBConfigModel
-	newEntry NewEntryDialogModel
 	width    int
 	height   int
 	err      error
@@ -60,13 +58,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mainview, cmd = m.mainview.Update(msg)
 		case StateDBConfig:
 			m.dbconfig, cmd = m.dbconfig.Update(msg)
-		case StateNewEntry:
-			m.newEntry, cmd = m.newEntry.Update(msg)
 		}
 		return m, cmd
 
-	case tea.KeyMsg:
-		if msg.String() == "c" && m.state == StateMainView {
+	case tea.KeyPressMsg:
+		if msg.String() == "c" && m.state == StateMainView && m.mainview.rightPanel.State() != detailEditKV {
 			return m, func() tea.Msg { return OpenDBConfigMsg{} }
 		}
 
@@ -88,7 +84,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case BackToMainMsg:
 		m.state = StateMainView
-		m.mainview.refreshPanels()
+		m.mainview.RefreshAll()
 		m = m.propagateSize()
 		return m, nil
 
@@ -99,27 +95,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case AttrChangedMsg:
-		m.mainview.refreshPanels()
+		m.mainview.HandleDBEvent(model.Event{Type: model.EventAttrSet, Key: msg.Key})
 		m.mainview.SetDirty(true)
-		return m, nil
-
-	case OpenNewEntryMsg:
-		m.state = StateNewEntry
-		currentPrefix := ""
-		if m.db != nil {
-			currentPrefix = m.mainview.CurrentPrefix()
-		}
-		m.newEntry = NewNewEntryDialog(currentPrefix)
-		m = m.propagateSize()
-		return m, nil
-
-	case NewEntryCreatedMsg:
-		m.state = StateMainView
-		prefix := model.ParentPath(msg.EntryPathPrefix)
-		m.mainview.SetCurrentPrefix(prefix)
-		m.mainview.refreshPanels()
-		m.mainview.SetDirty(true)
-		m = m.propagateSize()
 		return m, nil
 
 	case PasswordChangedMsg:
@@ -166,25 +143,24 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mainview, cmd = m.mainview.Update(msg)
 	case StateDBConfig:
 		m.dbconfig, cmd = m.dbconfig.Update(msg)
-	case StateNewEntry:
-		m.newEntry, cmd = m.newEntry.Update(msg)
 	}
 
 	return m, cmd
 }
 
-func (m AppModel) View() string {
+func (m AppModel) View() tea.View {
+	var content string
 	switch m.state {
 	case StateWelcome:
-		return m.welcome.View()
+		content = m.welcome.View()
 	case StateMainView:
-		return m.mainview.View()
+		content = m.mainview.View()
 	case StateDBConfig:
-		return m.dbconfig.View()
-	case StateNewEntry:
-		return m.newEntry.View()
+		content = m.dbconfig.View()
 	}
-	return ""
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
 }
 
 func (m AppModel) propagateSize() AppModel {
@@ -197,7 +173,6 @@ func (m AppModel) propagateSize() AppModel {
 	m.welcome.SetSize(w, h)
 	m.mainview.SetSize(w, h)
 	m.dbconfig.SetSize(w, h)
-	m.newEntry.SetSize(w, h)
 	return m
 }
 
@@ -219,14 +194,7 @@ type AttrChangedMsg struct {
 	Key string
 }
 
-type OpenNewEntryMsg struct{}
-
 type PasswordChangedMsg struct{}
-
-type NewEntryCreatedMsg struct {
-	EntryPathPrefix string
-	GroupPath       string
-}
 
 type SaveVaultMsg struct{}
 

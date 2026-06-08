@@ -14,9 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/tapass/tapass-tui/internal/model"
 )
 
@@ -24,9 +26,15 @@ type detailState int
 
 const (
 	detailView detailState = iota
-	detailEditAttr
-	detailAddAttr
+	detailEditKV
 	detailConfirmDelete
+)
+
+type editMode int
+
+const (
+	editModeNew editMode = iota
+	editModeEdit
 )
 
 type tickMsg struct{}
@@ -35,11 +43,12 @@ type EntryDetailModel struct {
 	entryPath    string
 	db           *model.DB
 	state        detailState
+	editMode     editMode
 	selectedAttr string
 	selectedEntry *model.Entry
-	editInput    textinput.Model
+	keyInput     textinput.Model
+	valueArea    textarea.Model
 	editKey      string
-	newKeyInput  textinput.Model
 	totpCode     string
 	totpRemaining int
 	totpDigits   int
@@ -52,19 +61,66 @@ type EntryDetailModel struct {
 }
 
 func NewEntryDetailModel(entryPath string, db *model.DB) EntryDetailModel {
-	editInput := textinput.New()
-	editInput.CharLimit = 4096
+	keyInput := textinput.New()
+	keyInput.CharLimit = 512
 
-	newKeyInput := textinput.New()
-	newKeyInput.Placeholder = "attribute name"
-	newKeyInput.CharLimit = 256
+	valueArea := textarea.New()
+	valueArea.CharLimit = 65536
+	valueArea.ShowLineNumbers = false
+	valueArea.SetWidth(40)
+	valueArea.SetHeight(5)
 
-	return EntryDetailModel{
-		entryPath:   entryPath,
-		db:          db,
-		state:       detailView,
-		editInput:   editInput,
-		newKeyInput: newKeyInput,
+	m := EntryDetailModel{
+		db:        db,
+		state:     detailView,
+		keyInput:  keyInput,
+		valueArea: valueArea,
+	}
+	m.SetEntryPath(entryPath)
+	return m
+}
+
+func (m *EntryDetailModel) SetEntryPath(path string) {
+	m.entryPath = path
+	m.selectedAttr = ""
+	m.selectedEntry = nil
+	m.state = detailView
+}
+
+func (m *EntryDetailModel) EntryPath() string {
+	return m.entryPath
+}
+
+func (m *EntryDetailModel) Refresh() {
+	if m.selectedAttr == "" || m.entryPath == "" || m.db == nil {
+		m.selectedEntry = nil
+		return
+	}
+	fullKey := m.entryPath + "/" + m.selectedAttr
+	if e, ok := m.db.Get(fullKey); ok {
+		m.selectedEntry = &e
+		if m.selectedAttr == "TOTP" {
+			m.updateTOTP()
+		}
+	} else {
+		m.selectedEntry = nil
+	}
+}
+
+func (m *EntryDetailModel) HandleEvent(evt model.Event) {
+	if m.entryPath == "" || m.db == nil {
+		return
+	}
+	switch evt.Type {
+	case model.EventAttrSet:
+		if evt.Key == m.entryPath+"/"+m.selectedAttr {
+			m.Refresh()
+		}
+	case model.EventAttrDeleted:
+		if evt.Key == m.entryPath+"/"+m.selectedAttr {
+			m.selectedEntry = nil
+			m.selectedAttr = ""
+		}
 	}
 }
 
@@ -100,6 +156,37 @@ func (m *EntryDetailModel) SelectAttr(name string) {
 			m.updateTOTP()
 		}
 	}
+}
+
+func (m *EntryDetailModel) StartEdit() {
+	if m.selectedEntry == nil || m.selectedAttr == "" {
+		return
+	}
+	m.state = detailEditKV
+	m.editMode = editModeEdit
+	m.editKey = m.entryPath + "/" + m.selectedAttr
+	m.keyInput.SetValue(m.editKey)
+	m.keyInput.CursorEnd()
+	m.keyInput.Blur()
+	m.valueArea.SetValue(string(m.selectedEntry.Value))
+	m.valueArea.Focus()
+	m.valueArea.CursorEnd()
+	m.err = nil
+}
+
+func (m *EntryDetailModel) StartNew(prefix string) {
+	m.state = detailEditKV
+	m.editMode = editModeNew
+	m.editKey = ""
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	m.keyInput.SetValue(prefix)
+	m.keyInput.CursorEnd()
+	m.keyInput.Focus()
+	m.valueArea.SetValue("")
+	m.valueArea.Blur()
+	m.err = nil
 }
 
 type totpParams struct {
@@ -229,6 +316,9 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.state == detailEditKV {
+			m.resizeEditor()
+		}
 
 	case tickMsg:
 		if m.selectedAttr == "TOTP" && m.selectedEntry != nil {
@@ -238,75 +328,51 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 			})
 		}
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		m.err = nil
 		switch m.state {
 		case detailView:
 			switch msg.String() {
 			case "e":
 				if m.selectedEntry != nil {
-					m.state = detailEditAttr
-					m.editKey = m.selectedAttr
-					m.editInput.SetValue(string(m.selectedEntry.Value))
-					m.editInput.Focus()
+					m.StartEdit()
+					m.resizeEditor()
 					return m, nil
 				}
-			case "a":
-				m.state = detailAddAttr
-				m.newKeyInput.SetValue("")
-				m.newKeyInput.Focus()
-				return m, nil
 			case "d":
-			if m.selectedEntry != nil && m.db != nil {
-				m.pendingDeleteKey = m.entryPath + "/" + m.selectedAttr
-				m.state = detailConfirmDelete
-				return m, nil
-			}
-			}
-
-		case detailEditAttr:
-			switch msg.String() {
-			case "enter":
-				if m.db != nil {
-					fullKey := m.entryPath + "/" + m.editKey
-					cmds := m.db.Set(fullKey, []byte(m.editInput.Value()))
-					if m.selectedAttr == m.editKey {
-						m.SelectAttr(m.editKey)
-					}
-					m.state = detailView
-					m.editInput.Blur()
-					return m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
-				}
-				m.state = detailView
-				m.editInput.Blur()
-				return m, nil
-			case "esc":
-				m.state = detailView
-				m.editInput.Blur()
-				return m, nil
-			}
-			m.editInput, cmd = m.editInput.Update(msg)
-			return m, cmd
-
-		case detailAddAttr:
-			switch msg.String() {
-			case "enter":
-				key := m.newKeyInput.Value()
-				if key == "" {
-					m.err = fmt.Errorf("attribute name cannot be empty")
+				if m.selectedEntry != nil && m.db != nil {
+					m.pendingDeleteKey = m.entryPath + "/" + m.selectedAttr
+					m.state = detailConfirmDelete
 					return m, nil
 				}
-				m.state = detailEditAttr
-				m.editKey = key
-				m.editInput.SetValue("")
-				m.editInput.Focus()
-				return m, nil
-			case "esc":
+			}
+
+		case detailEditKV:
+			if msg.String() == "alt+s" {
+				return m.saveKV()
+			}
+			if msg.String() == "esc" {
 				m.state = detailView
-				m.newKeyInput.Blur()
+				m.keyInput.Blur()
+				m.valueArea.Blur()
 				return m, nil
 			}
-			m.newKeyInput, cmd = m.newKeyInput.Update(msg)
+			if msg.String() == "tab" {
+				if m.keyInput.Focused() {
+					m.keyInput.Blur()
+					m.valueArea.Focus()
+				} else {
+					m.valueArea.Blur()
+					m.keyInput.Focus()
+				}
+				return m, nil
+			}
+
+			if m.keyInput.Focused() {
+				m.keyInput, cmd = m.keyInput.Update(msg)
+				return m, cmd
+			}
+			m.valueArea, cmd = m.valueArea.Update(msg)
 			return m, cmd
 
 		case detailConfirmDelete:
@@ -335,6 +401,70 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *EntryDetailModel) saveKV() (EntryDetailModel, tea.Cmd) {
+	if m.db == nil {
+		m.state = detailView
+		return *m, nil
+	}
+
+	var fullKey string
+	if m.editMode == editModeEdit {
+		fullKey = m.editKey
+	} else {
+		fullKey = m.keyInput.Value()
+		if fullKey == "" || fullKey == "/" {
+			m.err = fmt.Errorf("key cannot be empty")
+			return *m, nil
+		}
+		if !strings.HasPrefix(fullKey, "/") {
+			fullKey = "/" + fullKey
+		}
+	}
+
+	value := m.valueArea.Value()
+	cmds := m.db.Set(fullKey, []byte(value))
+
+	if m.editMode == editModeNew {
+		parent := model.ParentPath(fullKey)
+		attrName := fullKey[strings.LastIndex(fullKey, "/")+1:]
+		m.entryPath = parent
+		m.selectedAttr = attrName
+		m.state = detailView
+		m.keyInput.Blur()
+		m.valueArea.Blur()
+		m.Refresh()
+		return *m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
+	}
+
+	m.state = detailView
+	m.keyInput.Blur()
+	m.valueArea.Blur()
+	m.Refresh()
+	return *m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
+}
+
+func (m *EntryDetailModel) resizeEditor() {
+	w := m.width
+	if w < 1 {
+		w = 30
+	}
+	h := m.height
+	if h < 1 {
+		h = 20
+	}
+	editW := w - 6
+	if editW < 10 {
+		editW = 10
+	}
+	editH := h - 10
+	if editH < 3 {
+		editH = 3
+	}
+	m.valueArea.SetWidth(editW)
+	m.valueArea.SetHeight(editH)
+	m.keyInput.SetWidth(editW)
+}
+
 func (m EntryDetailModel) View() string {
 	width := m.width
 	if width < 1 {
@@ -347,18 +477,22 @@ func (m EntryDetailModel) View() string {
 
 	var b strings.Builder
 
-	if m.state != detailView {
-		return m.renderEditView(&b, width, height)
+	if m.state == detailEditKV {
+		return m.renderEditKVView(&b, width, height)
+	}
+
+	if m.state == detailConfirmDelete {
+		return m.renderConfirmDeleteView(&b, width, height)
 	}
 
 	if m.selectedAttr == "" || m.selectedEntry == nil {
-		b.WriteString(detailTitleStyle.Render("Detail"))
+		b.WriteString(detailTitleStyle.Width(width - 4).Render("Detail"))
 		b.WriteString("\n\n")
 		b.WriteString(menuStyle.Render("Select an attribute"))
 		return m.wrapBorder(b.String(), width, height)
 	}
 
-	b.WriteString(detailTitleStyle.Render(m.selectedAttr))
+	b.WriteString(detailTitleStyle.Width(width - 4).Render(m.selectedAttr))
 	b.WriteString("\n\n")
 
 	ts := time.UnixMilli(int64(m.selectedEntry.Timestamp)).Format("2006-01-02 15:04:05")
@@ -434,46 +568,52 @@ func (m EntryDetailModel) renderTextView(b *strings.Builder, width, height int) 
 }
 
 func wrapLine(s string, width int) []string {
-	if len(s) <= width {
+	if width < 1 {
+		return []string{s}
+	}
+	if runewidth.StringWidth(s) <= width {
 		return []string{s}
 	}
 	var lines []string
-	for len(s) > width {
-		lines = append(lines, s[:width])
-		s = s[width:]
+	remaining := s
+	for runewidth.StringWidth(remaining) > width {
+		cut := truncateString(remaining, width)
+		lines = append(lines, cut)
+		remaining = remaining[len(cut):]
 	}
-	if s != "" {
-		lines = append(lines, s)
+	if remaining != "" {
+		lines = append(lines, remaining)
 	}
 	return lines
 }
 
-func (m EntryDetailModel) renderEditView(b *strings.Builder, width, height int) string {
-	switch m.state {
-	case detailEditAttr:
-		b.WriteString(fmt.Sprintf("Editing: %s\n\n", m.editKey))
-		editWidth := width - 4
-		if editWidth < 10 {
-			editWidth = 10
-		}
-		b.WriteString(inputStyle.Width(editWidth).Render(m.editInput.View()))
-		b.WriteString("\n")
-		b.WriteString(menuStyle.Render("[enter] save  [esc] cancel"))
+func (m EntryDetailModel) renderEditKVView(b *strings.Builder, width, height int) string {
+	editW := width - 6
+	if editW < 10 {
+		editW = 10
+	}
 
-	case detailAddAttr:
-		b.WriteString("New attribute name:\n\n")
-		editWidth := width - 4
-		if editWidth < 10 {
-			editWidth = 10
+	if m.editMode == editModeNew {
+		b.WriteString("New KV:\n\n")
+		b.WriteString("Key:\n")
+		keyStyle := inputStyle.Width(editW)
+		if m.keyInput.Focused() {
+			keyStyle = keyStyle.BorderForeground(lipgloss.Color("#7C3AED"))
 		}
-		b.WriteString(inputStyle.Width(editWidth).Render(m.newKeyInput.View()))
-		b.WriteString("\n")
-		b.WriteString(menuStyle.Render("[enter] next  [esc] cancel"))
-
-	case detailConfirmDelete:
-		b.WriteString(errorStyle.Render("Confirm delete?"))
+		b.WriteString(keyStyle.Render(m.keyInput.View()))
 		b.WriteString("\n\n")
-		b.WriteString(menuStyle.Render("[d/y] confirm  [any] cancel"))
+	} else {
+		b.WriteString(fmt.Sprintf("Editing: %s\n\n", m.editKey))
+	}
+
+	b.WriteString("Value:\n")
+	b.WriteString(m.valueArea.View())
+	b.WriteString("\n\n")
+
+	if m.editMode == editModeNew {
+		b.WriteString(menuStyle.Render("[Tab] switch field  [Alt+S] save  [Esc] cancel"))
+	} else {
+		b.WriteString(menuStyle.Render("[Alt+S] save  [Esc] cancel"))
 	}
 
 	if m.err != nil {
@@ -481,6 +621,13 @@ func (m EntryDetailModel) renderEditView(b *strings.Builder, width, height int) 
 		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 	}
 
+	return m.wrapBorder(b.String(), width, height)
+}
+
+func (m EntryDetailModel) renderConfirmDeleteView(b *strings.Builder, width, height int) string {
+	b.WriteString(errorStyle.Render("Confirm delete?"))
+	b.WriteString("\n\n")
+	b.WriteString(menuStyle.Render("[d/y] confirm  [any] cancel"))
 	return m.wrapBorder(b.String(), width, height)
 }
 
@@ -495,6 +642,9 @@ func (m EntryDetailModel) wrapBorder(content string, width, height int) string {
 func (m *EntryDetailModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
+	if m.state == detailEditKV {
+		m.resizeEditor()
+	}
 }
 
 func (m *EntryDetailModel) SetFocused(f bool) {

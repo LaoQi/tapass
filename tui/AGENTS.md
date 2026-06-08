@@ -67,7 +67,10 @@ internal/
 - vault 包不操作文件系统，文件 I/O 由 store 实现负责（local 使用原子写入）→ **DB 内部 atomicWriteFile 处理**
 - TUI 组件均持有 width/height，通过 SetSize 响应 resize
 - 共享样式定义在 `tui/styles.go`
-- 三栏布局：左(1/4) | 中(1/4) | 右(1/2)，焦点面板橙色边框高亮
+- lipgloss v2 border 渲染存在 2 列内部开销：设置 `Width(w)` 时实际可用内容宽度为 `w-2`，因此 `wrapBorder` 设置 `Width(width-2)` 后实际可用宽度为 `width-4`
+- 列表面板标题和详情面板标题均使用底部边框分隔符（NormalBorder bottom），渲染宽度需减 2 抵消内部开销
+- 列表项 icon 显示宽度硬编码为 `iconDisplayWidth=3`（emoji 2列+空格 1列），label 最大宽度 = `width - 5 - iconDisplayWidth`
+- `wrapLine` 使用 `runewidth.StringWidth` 按显示宽度切片，不按字节切片，确保中文/宽字符正确换行
 - 左栏=当前级子项，中栏=选中项子项/属性，右栏=选中属性详情
 - 基于 `/` 前缀筛选条目，不构建树形结构（listing.go）
 - vim 导航：h=上一级，j/k=上下，l=下一级；右面板无游标导航

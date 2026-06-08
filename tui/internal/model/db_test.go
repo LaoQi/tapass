@@ -3,7 +3,7 @@ package model
 import (
 	"testing"
 
-	"github.com/charmbracelet/bubbletea"
+	"charm.land/bubbletea/v2"
 	"github.com/tapass/tapass-tools/vault"
 )
 

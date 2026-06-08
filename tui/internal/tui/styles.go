@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 var (
 	titleStyle = lipgloss.NewStyle().
@@ -11,7 +11,8 @@ var (
 	detailTitleStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("#7C3AED")).
-				MarginBottom(1)
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				BorderForeground(lipgloss.Color("#374151"))
 
 	inputStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
