@@ -172,20 +172,6 @@ func (db *DB) SetConfig(c Config) []tea.Cmd {
 	return db.emit(Event{Type: EventConfigChanged})
 }
 
-func (db *DB) HasChildEntries(path string) bool {
-	prefix := path + "/"
-	all := db.vault.List()
-	for key := range all {
-		if strings.HasPrefix(key, prefix) {
-			rest := strings.TrimPrefix(key, prefix)
-			if rest != "" && !strings.Contains(rest, "/") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (db *DB) OnChange(fn Listener) func() {
 	db.listeners = append(db.listeners, fn)
 	return func() {

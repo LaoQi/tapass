@@ -12,17 +12,9 @@ import (
 
 const iconDisplayWidth = 3
 
-type panelMode int
-
-const (
-	modeGroup panelMode = iota
-	modeAttr
-)
-
 type PanelListModel struct {
 	db      *model.DB
 	prefix  string
-	mode    panelMode
 	items   []model.ListItem
 	cursor  int
 	width   int
@@ -47,9 +39,6 @@ var (
 	panelGroupStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#60A5FA"))
 
-	panelEntryStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9CA3AF"))
-
 	panelAttrStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#34D399"))
 
@@ -72,11 +61,10 @@ func truncateString(s string, maxWidth int) string {
 	return b.String()
 }
 
-func NewPanelListModel(db *model.DB, prefix string, mode panelMode) PanelListModel {
+func NewPanelListModel(db *model.DB, prefix string) PanelListModel {
 	m := PanelListModel{
 		db:     db,
 		prefix: prefix,
-		mode:   mode,
 	}
 	m.deriveTitle()
 	m.doQuery(true)
@@ -84,18 +72,6 @@ func NewPanelListModel(db *model.DB, prefix string, mode panelMode) PanelListMod
 }
 
 func (m *PanelListModel) deriveTitle() {
-	if m.mode == modeAttr {
-		if m.prefix == "" {
-			m.title = ""
-			return
-		}
-		if idx := strings.LastIndex(m.prefix, "/"); idx >= 0 {
-			m.title = m.prefix[idx+1:]
-		} else {
-			m.title = m.prefix
-		}
-		return
-	}
 	if m.prefix == "" {
 		m.title = "/"
 	} else {
@@ -115,14 +91,7 @@ func (m *PanelListModel) doQuery(resetCursor bool) {
 		savedPath = m.items[m.cursor].FullPath
 	}
 
-	switch m.mode {
-	case modeGroup:
-		m.items = m.queryGroupItems()
-	case modeAttr:
-		m.items = m.queryAttrItems()
-	default:
-		m.items = nil
-	}
+	m.items = m.queryItems()
 
 	if resetCursor || savedPath == "" {
 		m.cursor = 0
@@ -141,57 +110,48 @@ func (m *PanelListModel) doQuery(resetCursor bool) {
 	}
 }
 
-func (m *PanelListModel) queryGroupItems() []model.ListItem {
+func (m *PanelListModel) queryItems() []model.ListItem {
 	keys := m.db.QueryKeys(m.prefix)
-	seen := make(map[string]bool)
-	items := make([]model.ListItem, 0)
+	depthMap := make(map[string]int)
+	orderMap := make(map[string]int)
+	idx := 0
 
 	for _, key := range keys {
 		rest := strings.TrimPrefix(key, m.prefix+"/")
 		name := rest
-		if idx := strings.Index(rest, "/"); idx >= 0 {
-			name = rest[:idx]
+		depth := 0
+		if slashIdx := strings.Index(rest, "/"); slashIdx >= 0 {
+			name = rest[:slashIdx]
+			subRest := rest[slashIdx+1:]
+			depth = strings.Count(subRest, "/") + 1
 		}
 		fullPath := m.prefix + "/" + name
-		if seen[fullPath] {
-			continue
+		if _, exists := depthMap[fullPath]; !exists {
+			depthMap[fullPath] = depth
+			orderMap[fullPath] = idx
+			idx++
+		} else if depth > depthMap[fullPath] {
+			depthMap[fullPath] = depth
 		}
-		seen[fullPath] = true
-		isEntry := m.db.HasChildEntries(fullPath)
+	}
+
+	items := make([]model.ListItem, 0, len(depthMap))
+	for fullPath, depth := range depthMap {
+		name := fullPath[strings.LastIndex(fullPath, "/")+1:]
 		items = append(items, model.ListItem{
 			Name:     name,
 			FullPath: fullPath,
-			IsEntry:  isEntry,
+			Depth:    depth,
 		})
 	}
 
 	sort.Slice(items, func(i, j int) bool {
-		if items[i].IsEntry != items[j].IsEntry {
-			return !items[i].IsEntry
+		if (items[i].Depth > 0) != (items[j].Depth > 0) {
+			return items[i].Depth > 0
 		}
 		return items[i].Name < items[j].Name
 	})
 
-	return items
-}
-
-func (m *PanelListModel) queryAttrItems() []model.ListItem {
-	keys := m.db.QueryKeys(m.prefix)
-	items := make([]model.ListItem, 0)
-	for _, key := range keys {
-		rest := strings.TrimPrefix(key, m.prefix+"/")
-		if rest == "" || strings.Contains(rest, "/") {
-			continue
-		}
-		items = append(items, model.ListItem{
-			Name:     rest,
-			FullPath: key,
-			IsAttr:   true,
-		})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Name < items[j].Name
-	})
 	return items
 }
 
@@ -206,18 +166,8 @@ func (m *PanelListModel) SetPrefix(prefix string) {
 	m.doQuery(true)
 }
 
-func (m *PanelListModel) SetMode(mode panelMode) {
-	m.mode = mode
-	m.deriveTitle()
-	m.doQuery(true)
-}
-
 func (m *PanelListModel) Prefix() string {
 	return m.prefix
-}
-
-func (m *PanelListModel) Mode() panelMode {
-	return m.mode
 }
 
 func (m *PanelListModel) Refresh() {
@@ -261,7 +211,6 @@ func (m PanelListModel) View() string {
 	if runewidth.StringWidth(titleLine) > contentWidth {
 		titleLine = truncateString(titleLine, maxTitleWidth) + "…"
 	}
-	// lipgloss border Width(w) 实际可用为 w-2（2列内部开销），因此标题渲染宽度需减2
 	b.WriteString(titleStyle.Width(contentWidth - 2).Render(titleLine))
 	b.WriteString("\n")
 
@@ -289,15 +238,11 @@ func (m PanelListModel) View() string {
 		item := m.items[i]
 
 		icon := "📂 "
-		if item.IsAttr {
+		if item.Depth == 0 {
 			icon = "🔖 "
-		} else if item.IsEntry {
-			icon = "📄 "
 		}
 
 		label := item.Name
-		// lipgloss border 设置 Width(w-2) 时实际可用内容宽度为 w-4（2列边框+2列内部开销），
-		// 因此 label 最大宽度 = (w-4) - iconDisplayWidth = w - 5 - iconDisplayWidth
 		maxLen := width - 5 - iconDisplayWidth
 		if maxLen > 0 && runewidth.StringWidth(label) > maxLen {
 			label = truncateString(label, maxLen-1) + "…"
@@ -307,12 +252,10 @@ func (m PanelListModel) View() string {
 
 		if i == m.cursor {
 			b.WriteString(panelSelectedStyle.Render(line))
-		} else if item.IsAttr {
-			b.WriteString(panelAttrStyle.Render(line))
-		} else if item.IsEntry {
-			b.WriteString(panelEntryStyle.Render(line))
-		} else {
+		} else if item.Depth > 0 {
 			b.WriteString(panelGroupStyle.Render(line))
+		} else {
+			b.WriteString(panelAttrStyle.Render(line))
 		}
 		if i < end-1 {
 			b.WriteString("\n")

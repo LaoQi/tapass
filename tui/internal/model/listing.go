@@ -7,8 +7,7 @@ import (
 type ListItem struct {
 	Name     string
 	FullPath string
-	IsEntry  bool
-	IsAttr   bool
+	Depth    int
 }
 
 func normalizePathPrefix(prefix string) string {

@@ -279,27 +279,6 @@ func TestSetConfig(t *testing.T) {
 	}
 }
 
-func TestHasChildEntries(t *testing.T) {
-	db := newTestDB(map[string]vault.Entry{
-		"/group1/entry1/PASSWD":   {Key: "/group1/entry1/PASSWD", Value: []byte("p1"), Type: vault.TypeText},
-		"/group1/entry1/username": {Key: "/group1/entry1/username", Value: []byte("u1"), Type: vault.TypeText},
-		"/group1/entry2/PASSWD":   {Key: "/group1/entry2/PASSWD", Value: []byte("p2"), Type: vault.TypeText},
-	})
-
-	if !db.HasChildEntries("/group1/entry1") {
-		t.Error("expected /group1/entry1 to have child entries")
-	}
-	if db.HasChildEntries("/group1/entry1/PASSWD") {
-		t.Error("expected /group1/entry1/PASSWD to have no child entries")
-	}
-	if db.HasChildEntries("/group1") {
-		t.Error("expected /group1 to have no direct child entries (only sub-groups)")
-	}
-	if db.HasChildEntries("/nonexistent") {
-		t.Error("expected /nonexistent to have no child entries")
-	}
-}
-
 func TestCreateDBAndOpenDB(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/test.tap"

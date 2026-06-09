@@ -38,6 +38,18 @@ const (
 	editModeEdit
 )
 
+type detailMode int
+
+const (
+	detailModeAttrList detailMode = iota
+	detailModeDetail
+)
+
+type AttrInfo struct {
+	Name      string
+	Timestamp uint64
+}
+
 type tickMsg struct{}
 
 type copyClearMsg struct{}
@@ -47,6 +59,8 @@ type EntryDetailModel struct {
 	db           *model.DB
 	state        detailState
 	editMode     editMode
+	mode         detailMode
+	attrList     []AttrInfo
 	selectedAttr string
 	selectedEntry *model.Entry
 	keyInput     textinput.Model
@@ -77,6 +91,7 @@ func NewEntryDetailModel(entryPath string, db *model.DB) EntryDetailModel {
 	m := EntryDetailModel{
 		db:        db,
 		state:     detailView,
+		mode:      detailModeDetail,
 		keyInput:  keyInput,
 		valueArea: valueArea,
 	}
@@ -162,6 +177,19 @@ func (m *EntryDetailModel) SelectAttr(name string) {
 			m.updateTOTP()
 		}
 	}
+}
+
+func (m *EntryDetailModel) SetAttrList(attrs []AttrInfo) {
+	m.mode = detailModeAttrList
+	m.attrList = attrs
+	m.selectedAttr = ""
+	m.selectedEntry = nil
+	m.copySuccess = false
+}
+
+func (m *EntryDetailModel) SetDetailMode() {
+	m.mode = detailModeDetail
+	m.attrList = nil
 }
 
 func (m *EntryDetailModel) StartEdit() {
@@ -481,9 +509,12 @@ func (m *EntryDetailModel) resizeEditor() {
 	if editW < 10 {
 		editW = 10
 	}
-	editH := h - 10
-	if editH < 3 {
-		editH = 3
+	editH := h - 8
+	if m.editMode == editModeEdit {
+		editH = h - 10
+	}
+	if editH < 1 {
+		editH = 1
 	}
 	m.valueArea.SetWidth(editW)
 	m.valueArea.SetHeight(editH)
@@ -508,6 +539,10 @@ func (m EntryDetailModel) View() string {
 
 	if m.state == detailConfirmDelete {
 		return m.renderConfirmDeleteView(&b, width, height)
+	}
+
+	if m.mode == detailModeAttrList {
+		return m.renderAttrListView(&b, width, height)
 	}
 
 	if m.selectedAttr == "" || m.selectedEntry == nil {
@@ -597,6 +632,35 @@ func (m EntryDetailModel) renderTextView(b *strings.Builder, width, height int) 
 	}
 }
 
+func (m EntryDetailModel) renderAttrListView(b *strings.Builder, width, height int) string {
+	b.WriteString(detailTitleStyle.Width(width - 4).Render("Attributes"))
+	b.WriteString("\n\n")
+
+	if len(m.attrList) == 0 {
+		b.WriteString(menuStyle.Render("  (no attributes)"))
+		return m.wrapBorder(b.String(), width, height)
+	}
+
+	maxNameWidth := width - 16
+	if maxNameWidth < 6 {
+		maxNameWidth = 6
+	}
+
+	for _, attr := range m.attrList {
+		name := attr.Name
+		if runewidth.StringWidth(name) > maxNameWidth {
+			name = truncateString(name, maxNameWidth-1) + "…"
+		}
+		ts := time.UnixMilli(int64(attr.Timestamp)).Format("2006-01-02 15:04")
+		b.WriteString(panelAttrStyle.Render(name))
+		b.WriteString("  ")
+		b.WriteString(timestampStyle.Render(ts))
+		b.WriteString("\n")
+	}
+
+	return m.wrapBorder(b.String(), width, height)
+}
+
 func wrapLine(s string, width int) []string {
 	if width < 1 {
 		return []string{s}
@@ -624,27 +688,21 @@ func (m EntryDetailModel) renderEditKVView(b *strings.Builder, width, height int
 	}
 
 	if m.editMode == editModeNew {
-		b.WriteString("New KV:\n\n")
-		b.WriteString("Key:\n")
 		keyStyle := inputStyle.Width(editW)
 		if m.keyInput.Focused() {
 			keyStyle = keyStyle.BorderForeground(lipgloss.Color("#7C3AED"))
 		}
 		b.WriteString(keyStyle.Render(m.keyInput.View()))
+		b.WriteString(detailTitleStyle.Width(width - 4).Render(""))
+	} else {
+		b.WriteString(detailTitleStyle.Width(width - 4).Render(m.selectedAttr))
 		b.WriteString("\n\n")
-	} else {
-		b.WriteString(fmt.Sprintf("Editing: %s\n\n", m.editKey))
+		ts := time.UnixMilli(int64(m.selectedEntry.Timestamp)).Format("2006-01-02 15:04:05")
+		b.WriteString(timestampStyle.Render(ts))
 	}
 
-	b.WriteString("Value:\n")
-	b.WriteString(m.valueArea.View())
 	b.WriteString("\n\n")
-
-	if m.editMode == editModeNew {
-		b.WriteString(menuStyle.Render("[Tab] switch field  [Alt+S] save  [Esc] cancel"))
-	} else {
-		b.WriteString(menuStyle.Render("[Alt+S] save  [Esc] cancel"))
-	}
+	b.WriteString(m.valueArea.View())
 
 	if m.err != nil {
 		b.WriteString("\n")

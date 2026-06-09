@@ -17,16 +17,16 @@ go run ./cmd/tapass-tui/                          # 运行
 cmd/tapass-tui/main.go     # 入口（可选数据库路径参数）
 internal/
   model/                    # 数据层（DB + 工具函数）
-    db.go                   # DB 核心：newDB/OpenDB/CreateDB/Save/Query/QueryKeys/Get/Set/Delete/ChangePassword/Config/SetConfig/HasChildEntries/OnChange/atomicWriteFile
+    db.go                   # DB 核心：newDB/OpenDB/CreateDB/Save/Query/QueryKeys/Get/Set/Delete/ChangePassword/Config/SetConfig/OnChange/atomicWriteFile
     db_test.go              # DB 测试（含持久化测试）
-    listing.go              # ListItem + normalizePathPrefix/ParentPath/EntryPath
+    listing.go              # ListItem(Depth字段) + normalizePathPrefix/ParentPath/EntryPath
     listing_test.go
   tui/                      # Bubble Tea 视图层
     app.go                  # 主 Model + 窗口路由 + 消息类型（含 SaveVaultMsg/SaveAndQuitMsg/VaultSavedMsg/PasswordChangedMsg）
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）
-    mainview.go             # 三栏布局 + vim导航 + TOTP tick管理 + dirty标记 + 退出确认(pendingQuit) + copyClearMsg转发
-    panellist.go            # 通用列表面板（分组/条目/属性图标，滚动跟随）
-    entrydetail.go          # 条目详情/编辑属性（单属性视图 + TOTP/Steam TOTP + 复制到剪贴板 + 删除确认detailConfirmDelete）
+    mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + 退出确认(pendingQuit) + copyClearMsg转发
+    panellist.go            # 通用列表面板（分组/属性图标，Depth区分，滚动跟随）
+    entrydetail.go          # 条目详情/编辑属性（detailMode: AttrList/Detail + 单属性视图 + TOTP/Steam TOTP + 复制到剪贴板 + 删除确认detailConfirmDelete）
     dbconfig.go             # 数据库设置（改密，成功发 PasswordChangedMsg）
     dialog.go               # 新建条目对话框
     styles.go               # 共享样式（含 TOTP/进度条/dirty 标题/状态栏按键/复制成功样式）
@@ -71,10 +71,11 @@ internal/
 - 列表面板标题和详情面板标题均使用底部边框分隔符（NormalBorder bottom），渲染宽度需减 2 抵消内部开销
 - 列表项 icon 显示宽度硬编码为 `iconDisplayWidth=3`（emoji 2列+空格 1列），label 最大宽度 = `width - 5 - iconDisplayWidth`
 - `wrapLine` 使用 `runewidth.StringWidth` 按显示宽度切片，不按字节切片，确保中文/宽字符正确换行
-- 左栏=当前级子项，中栏=选中项子项/属性，右栏=选中属性详情
+- 左栏=当前级子项（Depth>0为分组📂，Depth=0为属性🔖），右栏=属性列表/属性详情
 - 基于 `/` 前缀筛选条目，不构建树形结构（listing.go）
-- vim 导航：h=上一级，j/k=上下，l=下一级；右面板无游标导航
-- 详情面板：标题=属性key，第一栏=修改时间，第二栏=属性值（文本自动换行）
+- vim 导航：h=上一级，j/k=上下，l=打开/聚焦右栏；Tab=切换左右栏
+- 左栏选中属性(Depth=0)时 e/y/d 快捷键直接跳转右栏操作
+- 详情面板 detailModeAttrList：显示属性名+修改时间列表；detailModeDetail：标题=属性key，第一栏=修改时间，第二栏=属性值
 - TOTP 属性：解析 `otpauth://totp/` URI，支持 secret/digits/period/algorithm(SHA1/SHA256/SHA512)参数
 - Steam TOTP：digits=S 时使用字符表 `23456789BCDFGHJKMNPQRTVWXY` 生成5位字符码
 - TOTP tick 通过 mainview 的 totpActive 标志 + Update 末尾检查启动
@@ -86,7 +87,7 @@ internal/
 - 不保存退出：n → 直接 tea.Quit
 - Ctrl+S 仅保存：dirty 时保存，非 dirty 时静默无操作
 - `c` 键打开设置：在 app 层直接响应，不转发到子面板，始终可用
-- 删除功能仅在最右侧面板开放，删除仅能对属性（完整 key）操作
+- 删除功能在右栏面板开放，左栏选中属性时也可按 d 进入；删除仅能对属性（完整 key）操作
 - 删除需二次确认：按 `d` 进入 detailConfirmDelete 状态，再按 `d`/`y` 确认，其他键取消
 - DB 不暴露 vault：删除 `Vault()`/`Header()` 方法，外部禁止直接调用 vault
 - DB 新增 `Config()`/`SetConfig()` 接口：获取与设置 Config（含 Argon2 参数），对外不暴露 Header
@@ -96,4 +97,4 @@ internal/
 - 右侧面板查看模式下按 `y` 复制属性值到剪贴板：TOTP 属性复制当前验证码，其他属性复制原始值
 - 复制成功显示"已复制到剪贴板"提示（copySuccessStyle），1.5 秒后由 copyClearMsg 自动清除
 - copyClearMsg 由 entrydetail 产生，mainview 层转发，不跳过子组件路由
-- 切换条目/属性/状态时（SetEntryPath/SelectAttr/StartEdit/StartNew）自动清除复制提示
+- 切换条目/属性/状态时（SetEntryPath/SelectAttr/StartEdit/StartNew/SetAttrList/SetDetailMode）自动清除复制提示

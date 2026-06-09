@@ -13,9 +13,8 @@ type MainViewModel struct {
 	db     *model.DB
 	dbPath string
 
-	leftPanel   PanelListModel
-	middlePanel PanelListModel
-	rightPanel  EntryDetailModel
+	leftPanel  PanelListModel
+	rightPanel EntryDetailModel
 
 	focus       mainFocus
 	totpActive  bool
@@ -30,7 +29,6 @@ type mainFocus int
 
 const (
 	focusLeft mainFocus = iota
-	focusMiddle
 	focusRight
 )
 
@@ -76,55 +74,49 @@ func NewMainViewModel(db *model.DB, dbPath string, prefix string, w, h int) Main
 		height: h,
 	}
 
-	m.leftPanel = NewPanelListModel(db, prefix, modeGroup)
-	m.middlePanel = NewPanelListModel(db, "", modeGroup)
+	m.leftPanel = NewPanelListModel(db, prefix)
 	m.rightPanel = NewEntryDetailModel("", db)
 
-	m.syncMiddleFromLeft()
+	m.syncRightFromLeft()
 	return m
 }
 
-func (m *MainViewModel) syncMiddleFromLeft() {
+func (m *MainViewModel) syncRightFromLeft() {
 	if m.leftPanel.ItemCount() == 0 {
-		m.middlePanel.SetPrefix("")
-		m.middlePanel.SetMode(modeGroup)
 		m.rightPanel.SetEntryPath("")
+		m.rightPanel.SetAttrList(nil)
 		return
 	}
 
 	selected := m.leftPanel.SelectedItem()
-	m.middlePanel.SetPrefix(selected.FullPath)
-	if selected.IsEntry {
-		m.middlePanel.SetMode(modeAttr)
-		m.rightPanel.SetEntryPath(selected.FullPath)
-		if m.middlePanel.ItemCount() > 0 {
-			m.rightPanel.SelectAttr(m.middlePanel.SelectedItem().Name)
-		}
-	} else {
-		m.middlePanel.SetMode(modeGroup)
+	if selected.Depth > 0 {
 		m.rightPanel.SetEntryPath("")
+		m.rightPanel.SetDetailMode()
+		attrs := m.queryAttributes(selected.FullPath)
+		m.rightPanel.SetAttrList(attrs)
+	} else {
+		m.rightPanel.SetDetailMode()
+		entryPath := model.ParentPath(selected.FullPath)
+		m.rightPanel.SetEntryPath(entryPath)
+		m.rightPanel.SelectAttr(selected.Name)
 	}
 }
 
-func (m *MainViewModel) syncRightFromMiddle() {
-	if m.middlePanel.ItemCount() == 0 {
-		m.rightPanel.SetEntryPath("")
-		return
-	}
-
-	selected := m.middlePanel.SelectedItem()
-	if m.middlePanel.Mode() == modeAttr {
-		m.rightPanel.SelectAttr(selected.Name)
-	} else {
-		if selected.IsEntry {
-			m.rightPanel.SetEntryPath(selected.FullPath)
-			if m.middlePanel.ItemCount() > 0 {
-				m.rightPanel.SelectAttr(m.middlePanel.SelectedItem().Name)
+func (m *MainViewModel) queryAttributes(prefix string) []AttrInfo {
+	keys := m.db.QueryKeys(prefix)
+	var attrs []AttrInfo
+	for _, key := range keys {
+		rest := strings.TrimPrefix(key, prefix+"/")
+		if !strings.Contains(rest, "/") {
+			if e, ok := m.db.Get(key); ok {
+				attrs = append(attrs, AttrInfo{
+					Name:      rest,
+					Timestamp: e.Timestamp,
+				})
 			}
-		} else {
-			m.rightPanel.SetEntryPath("")
 		}
 	}
+	return attrs
 }
 
 func (m MainViewModel) Init() tea.Cmd {
@@ -185,16 +177,19 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 		case "l", "right", "enter":
 			m = m.handleRight()
 		case "tab":
-			m.focus = (m.focus + 1) % 3
-			if m.focus == focusRight && m.rightPanel.EntryPath() == "" {
-				m.focus = focusLeft
-			}
+			m.focus = (m.focus + 1) % 2
 		case "ctrl+s":
 			if m.dirty {
 				return m, func() tea.Msg { return SaveVaultMsg{} }
 			}
 		case "n":
 			m = m.handleNewKV()
+		case "e", "y", "d":
+			if m.focus == focusLeft && m.leftPanel.ItemCount() > 0 && m.leftPanel.SelectedItem().Depth == 0 {
+				m.focus = focusRight
+				m.rightPanel, cmd = m.rightPanel.Update(msg)
+				return m, cmd
+			}
 		case "q":
 			if m.dirty {
 				m.pendingQuit = true
@@ -222,46 +217,31 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 }
 
 func (m MainViewModel) handleUp() MainViewModel {
-	switch m.focus {
-	case focusLeft:
+	if m.focus == focusLeft {
 		m.leftPanel.MoveUp()
-		m.syncMiddleFromLeft()
-	case focusMiddle:
-		m.middlePanel.MoveUp()
-		m.syncRightFromMiddle()
+		m.syncRightFromLeft()
 	}
 	return m
 }
 
 func (m MainViewModel) handleDown() MainViewModel {
-	switch m.focus {
-	case focusLeft:
+	if m.focus == focusLeft {
 		m.leftPanel.MoveDown()
-		m.syncMiddleFromLeft()
-	case focusMiddle:
-		m.middlePanel.MoveDown()
-		m.syncRightFromMiddle()
+		m.syncRightFromLeft()
 	}
 	return m
 }
 
 func (m MainViewModel) handleNewKV() MainViewModel {
 	var prefix string
-	switch m.focus {
-	case focusLeft:
-		prefix = m.leftPanel.Prefix()
-	case focusMiddle:
-		if m.middlePanel.Mode() == modeAttr {
-			prefix = m.middlePanel.Prefix()
+	if m.focus == focusLeft {
+		selected := m.leftPanel.SelectedItem()
+		if selected.Depth > 0 {
+			prefix = selected.FullPath
 		} else {
-			selected := m.middlePanel.SelectedItem()
-			if selected.IsEntry {
-				prefix = selected.FullPath
-			} else {
-				prefix = selected.FullPath
-			}
+			prefix = m.leftPanel.Prefix()
 		}
-	case focusRight:
+	} else {
 		prefix = m.rightPanel.EntryPath()
 	}
 	m.rightPanel.StartNew(prefix)
@@ -272,83 +252,42 @@ func (m MainViewModel) handleNewKV() MainViewModel {
 func (m MainViewModel) handleLeft() MainViewModel {
 	switch m.focus {
 	case focusRight:
-		m.focus = focusMiddle
-	case focusMiddle:
 		m.focus = focusLeft
 	case focusLeft:
 		if m.leftPanel.Prefix() != "" {
 			parent := model.ParentPath(m.leftPanel.Prefix())
 			m.leftPanel.SetPrefix(parent)
-			m.syncMiddleFromLeft()
+			m.syncRightFromLeft()
 		}
 	}
 	return m
 }
 
 func (m MainViewModel) handleRight() MainViewModel {
-	switch m.focus {
-	case focusLeft:
-		if m.leftPanel.ItemCount() == 0 {
-			return m
-		}
-		selected := m.leftPanel.SelectedItem()
-		if selected.IsEntry {
-			m.middlePanel.SetPrefix(selected.FullPath)
-			m.middlePanel.SetMode(modeAttr)
-			m.rightPanel.SetEntryPath(selected.FullPath)
-			if m.middlePanel.ItemCount() > 0 {
-				m.rightPanel.SelectAttr(m.middlePanel.SelectedItem().Name)
-			}
-			m.focus = focusMiddle
-			return m
-		}
-		m.leftPanel.SetPrefix(selected.FullPath)
-		m.syncMiddleFromLeft()
-		return m
-
-	case focusMiddle:
-		if m.middlePanel.ItemCount() == 0 {
-			return m
-		}
-		selected := m.middlePanel.SelectedItem()
-
-		if m.middlePanel.Mode() == modeAttr {
-			m.focus = focusRight
-			m.rightPanel.SelectAttr(selected.Name)
-			return m
-		}
-
-		if selected.IsEntry {
-			m.middlePanel.SetPrefix(selected.FullPath)
-			m.middlePanel.SetMode(modeAttr)
-			m.rightPanel.SetEntryPath(selected.FullPath)
-			if m.middlePanel.ItemCount() > 0 {
-				m.rightPanel.SelectAttr(m.middlePanel.SelectedItem().Name)
-			}
-			m.focus = focusRight
-			return m
-		}
-
-		m.leftPanel.SetPrefix(selected.FullPath)
-		m.syncMiddleFromLeft()
-		return m
-
-	case focusRight:
+	if m.focus != focusLeft || m.leftPanel.ItemCount() == 0 {
 		return m
 	}
 
+	selected := m.leftPanel.SelectedItem()
+	if selected.Depth > 0 {
+		m.leftPanel.SetPrefix(selected.FullPath)
+		m.syncRightFromLeft()
+	} else {
+		m.focus = focusRight
+	}
 	return m
 }
 
 func (m *MainViewModel) HandleDBEvent(evt model.Event) {
 	m.leftPanel.HandleEvent(evt)
-	m.middlePanel.HandleEvent(evt)
 	m.rightPanel.HandleEvent(evt)
+	if evt.Type == model.EventAttrSet || evt.Type == model.EventAttrDeleted {
+		m.syncRightFromLeft()
+	}
 }
 
 func (m *MainViewModel) RefreshAll() {
 	m.leftPanel.Refresh()
-	m.middlePanel.Refresh()
 	m.rightPanel.Refresh()
 }
 
@@ -360,10 +299,6 @@ func (m MainViewModel) buildStatusBar() string {
 	}
 
 	var parts []string
-
-	canNav := m.focus != focusRight || m.rightPanel.State() == detailView
-	canBack := m.focus == focusLeft && m.leftPanel.Prefix() != "" || m.focus == focusMiddle || m.focus == focusRight
-	canOpen := canNav && (m.focus == focusLeft && m.leftPanel.ItemCount() > 0 || m.focus == focusMiddle && m.middlePanel.ItemCount() > 0)
 
 	if m.focus == focusRight {
 		switch m.rightPanel.State() {
@@ -379,9 +314,18 @@ func (m MainViewModel) buildStatusBar() string {
 			return keyEnabledStyle.Render("[d/y] confirm") + "  " + keyEnabledStyle.Render("[any] cancel")
 		}
 	} else {
+		canBack := m.leftPanel.Prefix() != ""
+		canOpen := m.leftPanel.ItemCount() > 0
+		canNav := m.leftPanel.ItemCount() > 1
 		parts = append(parts, m.renderKey("[h] back", canBack))
 		parts = append(parts, m.renderKey("[l] open", canOpen))
-		parts = append(parts, m.renderKey("[j/k] nav", canNav && (m.focus == focusLeft && m.leftPanel.ItemCount() > 1 || m.focus == focusMiddle && m.middlePanel.ItemCount() > 1)))
+		parts = append(parts, m.renderKey("[j/k] nav", canNav))
+
+		if m.leftPanel.ItemCount() > 0 && m.leftPanel.SelectedItem().Depth == 0 {
+			parts = append(parts, m.renderKey("[e] edit", true))
+			parts = append(parts, m.renderKey("[y] copy", true))
+			parts = append(parts, m.renderKey("[d] delete", true))
+		}
 	}
 
 	parts = append(parts, m.renderKey("[n] new", true))
@@ -411,29 +355,28 @@ func (m MainViewModel) View() string {
 		h = 24
 	}
 
-	leftWidth := clampInt(w/4, 18, 34)
-	rightWidth := clampInt(w/2, 22, w-44)
-	middleWidth := w - leftWidth - rightWidth
-	if middleWidth < 12 {
-		middleWidth = 12
-		rightWidth = w - leftWidth - middleWidth
+	leftWidth := w / 3
+	if leftWidth < 18 {
+		leftWidth = 18
+	}
+	rightWidth := w - leftWidth
+	if rightWidth < 22 {
+		rightWidth = 22
+		leftWidth = w - rightWidth
 	}
 
 	mainHeight := h - 2
 
 	m.leftPanel.SetSize(leftWidth, mainHeight)
-	m.middlePanel.SetSize(middleWidth, mainHeight)
 	m.rightPanel.SetSize(rightWidth, mainHeight)
 
 	m.leftPanel.SetFocused(m.focus == focusLeft)
-	m.middlePanel.SetFocused(m.focus == focusMiddle)
 	m.rightPanel.SetFocused(m.focus == focusRight)
 
 	leftView := m.leftPanel.View()
-	middleView := m.middlePanel.View()
 	rightView := m.rightPanel.View()
 
-	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftView, middleView, rightView)
+	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftView, rightView)
 
 	titleText := m.dbPath
 	if titleText == "" {
@@ -464,12 +407,16 @@ func (m MainViewModel) CurrentPrefix() string {
 
 func (m *MainViewModel) SetCurrentPrefix(prefix string) {
 	m.leftPanel.SetPrefix(prefix)
-	m.syncMiddleFromLeft()
+	m.syncRightFromLeft()
 }
 
 func (m MainViewModel) SelectedEntryPath() string {
-	if m.middlePanel.Mode() == modeAttr {
-		return m.middlePanel.Prefix()
+	if m.leftPanel.ItemCount() == 0 {
+		return ""
+	}
+	selected := m.leftPanel.SelectedItem()
+	if selected.Depth == 0 {
+		return model.ParentPath(selected.FullPath)
 	}
 	return ""
 }
@@ -494,13 +441,7 @@ func (m *MainViewModel) RestoreSelection(entryPath string, focusPanel mainFocus)
 		}
 	}
 
-	m.middlePanel.SetPrefix(entryPath)
-	m.middlePanel.SetMode(modeAttr)
-	m.rightPanel.SetEntryPath(entryPath)
-	if m.middlePanel.ItemCount() > 0 {
-		m.rightPanel.SelectAttr(m.middlePanel.SelectedItem().Name)
-	}
-
+	m.syncRightFromLeft()
 	m.focus = focusPanel
 }
 
