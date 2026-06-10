@@ -25,6 +25,8 @@ vault/                       # 核心加密库（非 internal，供 tui 跨模�
   header.go                  # 144 字节头部
   vault.go                   # Vault CRUD + ChangePassword + Compact
   vault_test.go
+version/                     # 共享版本信息包（供 tui 跨模块引用）
+  version.go                 # Version/Commit 变量 + String() 函数
 internal/
   importer/                  # KeePass XML 导入
     keepass.go
@@ -64,6 +66,27 @@ vault 包不直接操作文件系统，所有 I/O 通过 `[]byte` 传递：
 - 压缩使用 flate 裸 DEFLATE 流（非 zlib），与设计文档 "zlib/DEFLATE" 描述不同，为本项目明确选择
 - MarshalBinary 每次调用重新生成 Nonce
 - SubKeys.Zero() 安全清零密钥
+
+## 构建版本注入
+
+通过 `go build -ldflags` 在编译时注入版本信息到 `version` 包：
+
+```bash
+# Make 构建时自动注入（推荐）
+make                                    # 本机构建
+make GOOS=linux GOARCH=amd64           # 交叉编译
+make dist GOOS=windows GOARCH=amd64    # 构建 + 打包 zip
+
+# 手动 ldflags 注入
+go build -ldflags "-X github.com/tapass/tapass-tools/version.Version=v1.0.0 -X github.com/tapass/tapass-tools/version.Commit=abc1234" ./cmd/tapass-cli
+```
+
+版本显示逻辑（`version.String()`）：
+- 有 tag 时显示 tag（如 `v1.0.0`）
+- 无 tag 时显示 commit hash（如 `643bc4c`）
+- `go run` 开发时显示 `dev`
+
+所有工具支持 `--version` / `-v` 参数查看版本。
 
 ## CLI 用法
 

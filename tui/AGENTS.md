@@ -39,6 +39,7 @@ internal/
   replace github.com/tapass/tapass-tools => ../tools
   ```
 - vault 包路径为 `github.com/tapass/tapass-tools/vault`（非 internal，允许跨模块访问）
+- version 包路径为 `github.com/tapass/tapass-tools/version`（非 internal，允许跨模块访问）
 - vault 源码只在 tools 中维护，tui 不包含 vault 副本
 - vault API 变更会直接影响 tui 编译
 

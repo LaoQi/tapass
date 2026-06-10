@@ -6,10 +6,16 @@ import (
 	"syscall"
 
 	"github.com/tapass/tapass-tools/internal/importer"
+	"github.com/tapass/tapass-tools/version"
 	"golang.org/x/term"
 )
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("tapass-import %s\n", version.String())
+		return
+	}
+
 	if len(os.Args) != 3 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <input.xml|input.kdbx> <output.tap>\n", os.Args[0])
 		os.Exit(1)

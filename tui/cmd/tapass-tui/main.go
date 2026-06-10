@@ -5,10 +5,16 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/tapass/tapass-tools/version"
 	"github.com/tapass/tapass-tui/internal/tui"
 )
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("tapass-tui %s\n", version.String())
+		return
+	}
+
 	dbPath := ""
 	if len(os.Args) > 1 {
 		dbPath = os.Args[1]

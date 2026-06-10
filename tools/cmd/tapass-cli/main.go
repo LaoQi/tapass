@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/term"
 	"github.com/tapass/tapass-tools/vault"
+	"github.com/tapass/tapass-tools/version"
 )
 
 var out io.Writer = os.Stderr
@@ -28,6 +29,11 @@ type terminal struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("tapass-cli %s\n", version.String())
+		return
+	}
+
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "usage: tapass-cli <vault-file>\r\n")
 		os.Exit(1)
