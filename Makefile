@@ -35,7 +35,8 @@ tui:
 
 dist: build
 	@mkdir -p $(DIST_DIR)
-	cd $(BUILD_DIR) && zip -j ../$(ARCHIVE) tapass-cli$(EXE_SUFFIX) tapass-import$(EXE_SUFFIX) tapass-tui$(EXE_SUFFIX)
+	cp CHANGELOG.md $(BUILD_DIR)/
+	cd $(BUILD_DIR) && zip -j ../$(ARCHIVE) tapass-cli$(EXE_SUFFIX) tapass-import$(EXE_SUFFIX) tapass-tui$(EXE_SUFFIX) CHANGELOG.md
 
 package: dist
 

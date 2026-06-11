@@ -21,6 +21,7 @@ type AppModel struct {
 	welcome  WelcomeModel
 	mainview MainViewModel
 	dbconfig DBConfigModel
+	help     HelpViewModel
 	width    int
 	height   int
 	err      error
@@ -30,6 +31,7 @@ func NewApp() AppModel {
 	return AppModel{
 		state:   StateWelcome,
 		welcome: NewWelcomeModel(),
+		help:    NewHelpViewModel(),
 	}
 }
 
@@ -62,7 +64,20 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyPressMsg:
-		if msg.String() == "c" && m.state == StateMainView && m.mainview.rightPanel.State() != detailEditKV {
+		if m.help.Active() {
+			switch msg.String() {
+			case "esc", "?", "q":
+				m.help.Close()
+			}
+			return m, nil
+		}
+
+		if msg.String() == "?" && m.state == StateMainView && m.mainview.MainState() == StateBrowse && m.mainview.focus != focusSearch && m.mainview.rightPanel.State() == detailView {
+			m.help.Toggle()
+			return m, nil
+		}
+
+		if msg.String() == "c" && m.state == StateMainView && m.mainview.MainState() == StateBrowse && m.mainview.focus != focusSearch && m.mainview.rightPanel.State() != detailEditKV {
 			return m, func() tea.Msg { return OpenDBConfigMsg{} }
 		}
 
@@ -119,7 +134,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if err := m.db.Save(); err != nil {
-			m.mainview.pendingQuit = false
+			m.mainview.CancelQuit()
 			return m, func() tea.Msg { return ErrorMsg{Err: err} }
 		}
 		return m, func() tea.Msg { return VaultSavedMsg{QuitAfter: true} }
@@ -158,6 +173,11 @@ func (m AppModel) View() tea.View {
 	case StateDBConfig:
 		content = m.dbconfig.View()
 	}
+
+	if m.help.Active() && m.state == StateMainView {
+		content = m.help.View()
+	}
+
 	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
@@ -173,6 +193,7 @@ func (m AppModel) propagateSize() AppModel {
 	m.welcome.SetSize(w, h)
 	m.mainview.SetSize(w, h)
 	m.dbconfig.SetSize(w, h)
+	m.help.SetSize(w, h)
 	return m
 }
 

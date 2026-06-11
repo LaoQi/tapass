@@ -9,6 +9,13 @@ import (
 	"github.com/tapass/tapass-tui/internal/model"
 )
 
+type MainState int
+
+const (
+	StateBrowse MainState = iota
+	StatePendingQuit
+)
+
 type MainViewModel struct {
 	db     *model.DB
 	dbPath string
@@ -16,10 +23,11 @@ type MainViewModel struct {
 	leftPanel  PanelListModel
 	rightPanel EntryDetailModel
 
-	focus       mainFocus
-	totpActive  bool
-	dirty       bool
-	pendingQuit bool
+	state        MainState
+	focus        mainFocus
+	searchActive bool
+	totpActive   bool
+	dirty        bool
 
 	width  int
 	height int
@@ -28,7 +36,8 @@ type MainViewModel struct {
 type mainFocus int
 
 const (
-	focusLeft mainFocus = iota
+	focusSearch mainFocus = iota
+	focusLeft
 	focusRight
 )
 
@@ -63,6 +72,16 @@ func clampInt(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+func (m MainViewModel) MainState() MainState {
+	return m.state
+}
+
+func (m *MainViewModel) CancelQuit() {
+	if m.state == StatePendingQuit {
+		m.state = StateBrowse
+	}
 }
 
 func NewMainViewModel(db *model.DB, dbPath string, prefix string, w, h int) MainViewModel {
@@ -147,57 +166,11 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 		return m, cmd
 
 	case tea.KeyPressMsg:
-		if m.pendingQuit {
-			switch msg.String() {
-			case "y":
-				m.pendingQuit = false
-				return m, func() tea.Msg { return SaveAndQuitMsg{} }
-			case "n":
-				return m, tea.Quit
-			default:
-				m.pendingQuit = false
-				return m, nil
-			}
-		}
-
-		if m.focus == focusRight {
-			if m.rightPanel.State() != detailView || isDetailKey(msg.String()) {
-				m.rightPanel, cmd = m.rightPanel.Update(msg)
-				return m, cmd
-			}
-		}
-
-		switch msg.String() {
-		case "j", "down":
-			m = m.handleDown()
-		case "k", "up":
-			m = m.handleUp()
-		case "h", "left":
-			m = m.handleLeft()
-		case "l", "right", "enter":
-			m = m.handleRight()
-		case "tab":
-			m.focus = (m.focus + 1) % 2
-		case "ctrl+s":
-			if m.dirty {
-				return m, func() tea.Msg { return SaveVaultMsg{} }
-			}
-		case "n":
-			m = m.handleNewKV()
-		case "e", "y", "d":
-			if m.focus == focusLeft && m.leftPanel.ItemCount() > 0 && m.leftPanel.SelectedItem().Depth == 0 {
-				m.focus = focusRight
-				m.rightPanel, cmd = m.rightPanel.Update(msg)
-				return m, cmd
-			}
-		case "q":
-			if m.dirty {
-				m.pendingQuit = true
-				return m, nil
-			}
-			return m, tea.Quit
-		case "esc":
-			m = m.handleLeft()
+		switch m.state {
+		case StatePendingQuit:
+			return m.handlePendingQuitKey(msg)
+		case StateBrowse:
+			return m.handleBrowseKey(msg)
 		}
 	}
 
@@ -216,11 +189,112 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m MainViewModel) handlePendingQuitKey(msg tea.KeyPressMsg) (MainViewModel, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		m.state = StateBrowse
+		return m, func() tea.Msg { return SaveAndQuitMsg{} }
+	case "n":
+		return m, tea.Quit
+	default:
+		m.state = StateBrowse
+		return m, nil
+	}
+}
+
+func (m MainViewModel) handleBrowseKey(msg tea.KeyPressMsg) (MainViewModel, tea.Cmd) {
+	if m.searchActive && msg.String() == "esc" {
+		m = m.exitSearch()
+		return m, nil
+	}
+
+	if m.focus == focusSearch {
+		return m.handleSearchFocusKey(msg)
+	}
+
+	if m.focus == focusRight {
+		if m.rightPanel.State() != detailView || isDetailKey(msg.String()) {
+			var cmd tea.Cmd
+			m.rightPanel, cmd = m.rightPanel.Update(msg)
+			return m, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		m = m.handleDown()
+	case "k", "up":
+		m = m.handleUp()
+	case "h", "left":
+		m = m.handleLeft()
+	case "l", "right", "enter":
+		m = m.handleRight()
+	case "tab":
+		m.focus = (m.focus + 1) % 3
+		if m.focus == focusSearch {
+			m.leftPanel.FocusSearchInput()
+		} else {
+			m.leftPanel.BlurSearchInput()
+		}
+	case "ctrl+s":
+		if m.dirty {
+			return m, func() tea.Msg { return SaveVaultMsg{} }
+		}
+	case "n":
+		m = m.handleNewKV()
+	case "e", "y", "d":
+		if m.focus == focusLeft && m.leftPanel.ItemCount() > 0 && m.leftPanel.SelectedItem().Depth == 0 {
+			m.focus = focusRight
+			var cmd tea.Cmd
+			m.rightPanel, cmd = m.rightPanel.Update(msg)
+			return m, cmd
+		}
+	case "q":
+		if m.dirty {
+			m.state = StatePendingQuit
+			return m, nil
+		}
+		return m, tea.Quit
+	case "esc":
+		m = m.handleLeft()
+	case "/":
+		m = m.handleEnterSearch()
+	}
+	return m, nil
+}
+
 func (m MainViewModel) handleUp() MainViewModel {
 	if m.focus == focusLeft {
 		m.leftPanel.MoveUp()
 		m.syncRightFromLeft()
 	}
+	return m
+}
+
+func (m MainViewModel) handleSearchFocusKey(msg tea.KeyPressMsg) (MainViewModel, tea.Cmd) {
+	switch msg.String() {
+	case "tab":
+		m.focus = focusLeft
+		m.leftPanel.BlurSearchInput()
+		return m, nil
+	case "enter":
+		m.focus = focusLeft
+		m.leftPanel.BlurSearchInput()
+		return m, nil
+	default:
+		si := m.leftPanel.SearchInput()
+		newSi, cmd := si.Update(msg)
+		m.leftPanel.SetSearchInput(newSi)
+		m.performSearch(newSi.Value())
+		return m, cmd
+	}
+}
+
+func (m MainViewModel) exitSearch() MainViewModel {
+	m.searchActive = false
+	m.leftPanel.ExitSearch()
+	m.syncRightFromLeft()
+	m.focus = focusLeft
 	return m
 }
 
@@ -251,6 +325,9 @@ func (m MainViewModel) handleNewKV() MainViewModel {
 
 func (m MainViewModel) handleLeft() MainViewModel {
 	switch m.focus {
+	case focusSearch:
+		m.focus = focusLeft
+		m.leftPanel.BlurSearchInput()
 	case focusRight:
 		m.focus = focusLeft
 	case focusLeft:
@@ -278,6 +355,19 @@ func (m MainViewModel) handleRight() MainViewModel {
 	return m
 }
 
+func (m MainViewModel) handleEnterSearch() MainViewModel {
+	m.leftPanel.EnterSearch()
+	m.searchActive = true
+	m.focus = focusSearch
+	m.leftPanel.FocusSearchInput()
+	return m
+}
+
+func (m *MainViewModel) performSearch(query string) {
+	m.leftPanel.ApplySearchFilter(query)
+	m.syncRightFromLeft()
+}
+
 func (m *MainViewModel) HandleDBEvent(evt model.Event) {
 	m.leftPanel.HandleEvent(evt)
 	m.rightPanel.HandleEvent(evt)
@@ -292,13 +382,34 @@ func (m *MainViewModel) RefreshAll() {
 }
 
 func (m MainViewModel) buildStatusBar() string {
-	if m.pendingQuit {
+	if m.state == StatePendingQuit {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true).Render("[y] save & quit") + "  " +
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Bold(true).Render("[n] quit without saving") + "  " +
 			keyEnabledStyle.Render("[esc] cancel")
 	}
 
 	var parts []string
+
+	if m.searchActive {
+		parts = append(parts, keyEnabledStyle.Render("[esc] exit search"))
+		parts = append(parts, keyEnabledStyle.Render("[tab] switch focus"))
+		if m.focus != focusSearch {
+			canBack := m.leftPanel.Prefix() != ""
+			canOpen := m.leftPanel.ItemCount() > 0
+			canNav := m.leftPanel.ItemCount() > 1
+			parts = append(parts, m.renderKey("[h] back", canBack))
+			parts = append(parts, m.renderKey("[l] open", canOpen))
+			parts = append(parts, m.renderKey("[j/k] nav", canNav))
+		}
+		parts = append(parts, m.renderKey("[n] new", true))
+		if m.dirty {
+			parts = append(parts, m.renderKey("[Ctrl+S] save", true))
+		}
+		parts = append(parts, m.renderKey("[c] config", true))
+		parts = append(parts, m.renderKey("[?] help", true))
+		parts = append(parts, m.renderKey("[q] quit", true))
+		return strings.Join(parts, "  ")
+	}
 
 	if m.focus == focusRight {
 		switch m.rightPanel.State() {
@@ -332,7 +443,9 @@ func (m MainViewModel) buildStatusBar() string {
 	if m.dirty {
 		parts = append(parts, m.renderKey("[Ctrl+S] save", true))
 	}
+	parts = append(parts, m.renderKey("[/] search", true))
 	parts = append(parts, m.renderKey("[c] config", true))
+	parts = append(parts, m.renderKey("[?] help", true))
 	parts = append(parts, m.renderKey("[q] quit", true))
 
 	return strings.Join(parts, "  ")
@@ -370,7 +483,7 @@ func (m MainViewModel) View() string {
 	m.leftPanel.SetSize(leftWidth, mainHeight)
 	m.rightPanel.SetSize(rightWidth, mainHeight)
 
-	m.leftPanel.SetFocused(m.focus == focusLeft)
+	m.leftPanel.SetFocused(m.focus == focusLeft || m.focus == focusSearch)
 	m.rightPanel.SetFocused(m.focus == focusRight)
 
 	leftView := m.leftPanel.View()

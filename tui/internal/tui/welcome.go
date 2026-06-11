@@ -196,12 +196,14 @@ var tapassASCII = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#7C3AED")).
 	Bold(true).
 	Render(
-		`████████╗ █████╗ ██████╗  █████╗ ███████╗███████╗
+		`
+████████╗ █████╗ ██████╗  █████╗ ███████╗███████╗
 ╚══██╔══╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝
    ██║   ███████║██████╔╝███████║███████╗███████╗
    ██║   ██╔══██║██╔═══╝ ██╔══██║╚════██║╚════██║
    ██║   ██║  ██║██║     ██║  ██║███████║███████║
-   ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝`)
+   ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝
+`)
 
 func (m WelcomeModel) View() string {
 	width := m.width
@@ -255,7 +257,7 @@ func (m WelcomeModel) View() string {
 	titleView := lipgloss.NewStyle().
 		Width(width).
 		Padding(1, 0).
-		Render(titleStyle.Render("tapass-tui"))
+		Render(titleStyle.Render(""))
 
 	contentStr := content.String()
 	contentLines := strings.Count(contentStr, "\n") + 1

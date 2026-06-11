@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/mattn/go-runewidth"
 	"github.com/tapass/tapass-tui/internal/model"
@@ -13,14 +14,17 @@ import (
 const iconDisplayWidth = 3
 
 type PanelListModel struct {
-	db      *model.DB
-	prefix  string
-	items   []model.ListItem
-	cursor  int
-	width   int
-	height  int
-	title   string
-	focused bool
+	db          *model.DB
+	prefix      string
+	rawKeys     []string
+	items       []model.ListItem
+	cursor      int
+	width       int
+	height      int
+	title       string
+	focused     bool
+	searchMode  bool
+	searchInput textinput.Model
 }
 
 var (
@@ -62,9 +66,14 @@ func truncateString(s string, maxWidth int) string {
 }
 
 func NewPanelListModel(db *model.DB, prefix string) PanelListModel {
+	si := textinput.New()
+	si.Prompt = "/"
+	//si.Placeholder = "搜索..."
+	si.CharLimit = 64
 	m := PanelListModel{
-		db:     db,
-		prefix: prefix,
+		db:          db,
+		prefix:      prefix,
+		searchInput: si,
 	}
 	m.deriveTitle()
 	m.doQuery(true)
@@ -81,6 +90,7 @@ func (m *PanelListModel) deriveTitle() {
 
 func (m *PanelListModel) doQuery(resetCursor bool) {
 	if m.db == nil {
+		m.rawKeys = nil
 		m.items = nil
 		m.cursor = 0
 		return
@@ -91,7 +101,8 @@ func (m *PanelListModel) doQuery(resetCursor bool) {
 		savedPath = m.items[m.cursor].FullPath
 	}
 
-	m.items = m.queryItems()
+	m.rawKeys = m.db.QueryKeys(m.prefix)
+	m.rebuildItems()
 
 	if resetCursor || savedPath == "" {
 		m.cursor = 0
@@ -110,8 +121,7 @@ func (m *PanelListModel) doQuery(resetCursor bool) {
 	}
 }
 
-func (m *PanelListModel) queryItems() []model.ListItem {
-	keys := m.db.QueryKeys(m.prefix)
+func (m *PanelListModel) buildItems(keys []string) []model.ListItem {
 	depthMap := make(map[string]int)
 	orderMap := make(map[string]int)
 	idx := 0
@@ -149,10 +159,34 @@ func (m *PanelListModel) queryItems() []model.ListItem {
 		if (items[i].Depth > 0) != (items[j].Depth > 0) {
 			return items[i].Depth > 0
 		}
-		return items[i].Name < items[j].Name
+		return orderMap[items[i].FullPath] < orderMap[items[j].FullPath]
 	})
 
 	return items
+}
+
+func (m *PanelListModel) rebuildItems() {
+	keys := m.rawKeys
+	query := m.searchInput.Value()
+	if m.searchMode && query != "" {
+		lowerQuery := strings.ToLower(query)
+		filtered := make([]string, 0, len(keys))
+		for _, key := range keys {
+			if strings.Contains(strings.ToLower(key), lowerQuery) {
+				filtered = append(filtered, key)
+			}
+		}
+		keys = filtered
+	}
+	m.items = m.buildItems(keys)
+	if m.cursor >= len(m.items) {
+		m.cursor = 0
+	}
+}
+
+func (m *PanelListModel) ApplySearchFilter(query string) {
+	m.searchInput.SetValue(query)
+	m.rebuildItems()
 }
 
 func (m *PanelListModel) SetDB(db *model.DB) {
@@ -177,9 +211,6 @@ func (m *PanelListModel) Refresh() {
 func (m *PanelListModel) HandleEvent(evt model.Event) {
 	switch evt.Type {
 	case model.EventAttrSet, model.EventAttrDeleted:
-		if m.prefix == "" {
-			return
-		}
 		if strings.HasPrefix(evt.Key, m.prefix+"/") {
 			m.doQuery(false)
 		}
@@ -214,13 +245,32 @@ func (m PanelListModel) View() string {
 	b.WriteString(titleStyle.Width(contentWidth - 2).Render(titleLine))
 	b.WriteString("\n")
 
+	if m.searchMode {
+		borderColor := lipgloss.Color("#7C3AED")
+		if !m.searchInput.Focused() {
+			borderColor = lipgloss.Color("#374151")
+		}
+		searchStyle := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(borderColor)
+		b.WriteString(searchStyle.Width(contentWidth - 2).Render(" " + m.searchInput.View()))
+		b.WriteString("\n")
+	}
+
 	if len(m.items) == 0 {
-		b.WriteString("\n  (empty)")
+		if m.searchMode {
+			b.WriteString("\n  (无匹配)")
+		} else {
+			b.WriteString("\n  (empty)")
+		}
 		content := b.String()
 		return m.wrapBorder(content, width, height)
 	}
 
 	displayHeight := height - 4
+	if m.searchMode {
+		displayHeight = height - 5
+	}
 	if displayHeight < 1 {
 		displayHeight = 1
 	}
@@ -243,6 +293,9 @@ func (m PanelListModel) View() string {
 		}
 
 		label := item.Name
+		if m.searchMode && item.Depth > 0 {
+			label = item.FullPath
+		}
 		maxLen := width - 5 - iconDisplayWidth
 		if maxLen > 0 && runewidth.StringWidth(label) > maxLen {
 			label = truncateString(label, maxLen-1) + "…"
@@ -304,3 +357,37 @@ func (m *PanelListModel) SetSize(w, h int) {
 func (m *PanelListModel) SetFocused(f bool) {
 	m.focused = f
 }
+
+func (m *PanelListModel) EnterSearch() {
+	m.searchMode = true
+	m.searchInput.SetValue("")
+	m.rebuildItems()
+}
+
+func (m *PanelListModel) ExitSearch() {
+	m.searchMode = false
+	m.searchInput.Blur()
+	m.rebuildItems()
+}
+
+func (m *PanelListModel) FocusSearchInput() {
+	m.searchInput.Focus()
+}
+
+func (m *PanelListModel) BlurSearchInput() {
+	m.searchInput.Blur()
+}
+
+func (m *PanelListModel) SearchActive() bool {
+	return m.searchMode
+}
+
+func (m *PanelListModel) SearchInput() *textinput.Model {
+	return &m.searchInput
+}
+
+func (m *PanelListModel) SetSearchInput(si textinput.Model) {
+	m.searchInput = si
+}
+
+

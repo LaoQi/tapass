@@ -112,7 +112,7 @@ func (m *EntryDetailModel) EntryPath() string {
 }
 
 func (m *EntryDetailModel) Refresh() {
-	if m.selectedAttr == "" || m.entryPath == "" || m.db == nil {
+	if m.selectedAttr == "" || m.db == nil {
 		m.selectedEntry = nil
 		return
 	}
@@ -128,7 +128,7 @@ func (m *EntryDetailModel) Refresh() {
 }
 
 func (m *EntryDetailModel) HandleEvent(evt model.Event) {
-	if m.entryPath == "" || m.db == nil {
+	if m.db == nil {
 		return
 	}
 	switch evt.Type {
@@ -166,7 +166,7 @@ func (m *EntryDetailModel) SelectAttr(name string) {
 	m.selectedEntry = nil
 	m.copySuccess = false
 
-	if m.entryPath == "" || m.db == nil || name == "" {
+	if m.db == nil || name == "" {
 		return
 	}
 
