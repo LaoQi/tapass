@@ -17,16 +17,17 @@ go run ./cmd/tapass-tui/                          # 运行
 cmd/tapass-tui/main.go     # 入口（可选数据库路径参数）
 internal/
   model/                    # 数据层（DB + 工具函数）
-    db.go                   # DB 核心：newDB/OpenDB/CreateDB/Save/Query/QueryKeys/Get/Set/Delete/ChangePassword/Config/SetConfig/OnChange/atomicWriteFile
+    db.go                   # DB 核心：newDB/OpenDB/CreateDB/Save/Query/QueryKeys/Get/Set/Delete/ChangePassword/Config/SetConfig/OnChange/atomicWriteFile（已移除 SearchKeys）
     db_test.go              # DB 测试（含持久化测试）
     listing.go              # ListItem(Depth字段) + normalizePathPrefix/ParentPath/EntryPath
     listing_test.go
   tui/                      # Bubble Tea 视图层
-    app.go                  # 主 Model + 窗口路由 + 消息类型（含 SaveVaultMsg/SaveAndQuitMsg/VaultSavedMsg/PasswordChangedMsg）
+    app.go                  # 主 Model + 窗口路由 + 消息类型（含 SaveVaultMsg/SaveAndQuitMsg/VaultSavedMsg/PasswordChangedMsg）+ 帮助覆盖层路由
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）
-    mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + 退出确认(pendingQuit) + copyClearMsg转发
-    panellist.go            # 通用列表面板（分组/属性图标，Depth区分，滚动跟随）
-    entrydetail.go          # 条目详情/编辑属性（detailMode: AttrList/Detail + 单属性视图 + TOTP/Steam TOTP + 复制到剪贴板 + 删除确认detailConfirmDelete）
+    mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点(focusSearch/focusLeft/focusRight) + 搜索过滤 + copyClearMsg转发
+    panellist.go            # 列表面板（rawKeys存储原始key + buildItems聚合 + rebuildItems过滤聚合 + 分组/属性图标 + 搜索框 + Depth区分 + 滚动跟随）
+    entrydetail.go          # 条目详情/编辑属性（detailState: detailView/detailEditKV/detailConfirmDelete + 属性视图 + TOTP/Steam TOTP + 复制到剪贴板）
+    helpview.go             # 帮助覆盖层（? 键触发，居中面板显示快捷键说明）
     dbconfig.go             # 数据库设置（改密，成功发 PasswordChangedMsg）
     dialog.go               # 新建条目对话框
     styles.go               # 共享样式（含 TOTP/进度条/dirty 标题/状态栏按键/复制成功样式）
@@ -83,11 +84,12 @@ internal/
 - 列表超长时限制显示高度，选中项自动滚动跟随
 - dirty 标记：数据变更时标题栏变红显示 [未保存]，通过 SetDirty 设置
 - 编辑/删除属性后发送 AttrChangedMsg，修改密码成功后发送 PasswordChangedMsg
-- 退出确认：dirty 时按 q 进入 pendingQuit 状态，状态栏显示 `[y] save & quit  [n] quit without saving  [esc] cancel`
+- 退出确认：dirty 时按 q 进入 StatePendingQuit 状态，状态栏显示 `[y] save & quit  [n] quit without saving  [esc] cancel`
 - 保存并退出：y → 发 SaveAndQuitMsg → 保存成功后 VaultSavedMsg{QuitAfter:true} → tea.Quit
 - 不保存退出：n → 直接 tea.Quit
 - Ctrl+S 仅保存：dirty 时保存，非 dirty 时静默无操作
-- `c` 键打开设置：在 app 层直接响应，不转发到子面板，始终可用
+- `c` 键打开设置：在 app 层直接响应，不转发到子面板，搜索框聚焦时屏蔽
+- `?` 键打开帮助覆盖层：在 app 层直接响应，搜索框聚焦时屏蔽
 - 删除功能在右栏面板开放，左栏选中属性时也可按 d 进入；删除仅能对属性（完整 key）操作
 - 删除需二次确认：按 `d` 进入 detailConfirmDelete 状态，再按 `d`/`y` 确认，其他键取消
 - DB 不暴露 vault：删除 `Vault()`/`Header()` 方法，外部禁止直接调用 vault
@@ -99,3 +101,20 @@ internal/
 - 复制成功显示"已复制到剪贴板"提示（copySuccessStyle），1.5 秒后由 copyClearMsg 自动清除
 - copyClearMsg 由 entrydetail 产生，mainview 层转发，不跳过子组件路由
 - 切换条目/属性/状态时（SetEntryPath/SelectAttr/StartEdit/StartNew/SetAttrList/SetDetailMode）自动清除复制提示
+
+## 搜索过滤机制
+
+- 搜索是浏览模式上的过滤层，非独立状态：`searchActive bool` + `StateBrowse`
+- 三焦点模型：`focusSearch`/`focusLeft`/`focusRight`，Tab 循环 `(focus + 1) % 3`
+- `/` 键进入搜索，搜索框聚焦时仅 `esc`/`tab`/`enter` 特殊路由，其余转发给 searchInput
+- 搜索范围：当前前缀下的原始 key 全路径匹配（`strings.Contains(strings.ToLower(key), lowerQuery)`），不区分大小写
+- 空查询显示当前前缀下所有条目
+- `esc` 统一退出搜索 + 清空过滤 + 焦点回到左面板
+- `enter`（搜索框聚焦）：焦点移到左面板
+- `enter`（列表聚焦）：等同于浏览模式
+- 导航子分组（`h`/`l`）时保持搜索，`SetPrefix` 触发 `doQuery` 重新填充 rawKeys 后自动 `rebuildItems`
+- 数据流：`DB.QueryKeys(prefix)` → `rawKeys` → 过滤 → `buildItems(filteredKeys)` → `items`
+- 前缀变更 → `doQuery` 重新查 DB 填充 `rawKeys` + `rebuildItems`
+- 搜索词变更 → 仅 `rebuildItems`，不查 DB
+- `panellist.searchMode` 仅用于 View 渲染（搜索框、FullPath 显示、空匹配提示）
+- `mainview.searchActive` 是搜索状态的权威标识

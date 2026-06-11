@@ -6,6 +6,7 @@ tapass 密码管理器单一仓库。
 
 ```
 tapass/
+├── CHANGELOG.md    # 变更日志（发布包附带）
 ├── docs/           # 设计文档
 │   └── v1/         # V1 版本设计
 ├── tools/          # CLI 工具集（独立 Go 模块）
@@ -34,6 +35,11 @@ tapass/
 - 数据结构 JSON Schema：`docs/v1/schema.json`
 - 加密模型：`docs/v1/crypto-model.md`
 - 版本概述：`docs/v1/overview.md`
+
+## 变更日志
+
+- `CHANGELOG.md`：记录各版本变更，未打版本号的变更记作 dev 版本
+- 发布包（zip）附带 CHANGELOG.md
 
 ## Agent 读取指引
 
