@@ -8,10 +8,6 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-type helpToggleMsg struct{}
-type helpCloseMsg struct{}
-type setHelpSizeMsg struct{ Width, Height int }
-
 type HelpViewModel struct {
 	active bool
 	width  int

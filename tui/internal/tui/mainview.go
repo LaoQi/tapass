@@ -9,10 +9,6 @@ import (
 	"github.com/tapass/tapass-tui/internal/model"
 )
 
-type dirtyMsg struct{ Dirty bool }
-type cancelQuitMsg struct{}
-type mainViewModelEventMsg struct{ Event model.Event }
-
 type MainState int
 
 const (
@@ -59,24 +55,6 @@ var (
 				Foreground(lipgloss.Color("#EF4444")).
 				Bold(true)
 )
-
-func isDetailKey(key string) bool {
-	switch key {
-	case "e", "d", "y":
-		return true
-	}
-	return false
-}
-
-func clampInt(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
 
 func (m MainViewModel) MainState() MainState {
 	return m.state

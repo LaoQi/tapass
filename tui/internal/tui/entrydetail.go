@@ -2,15 +2,9 @@ package tui
 
 import (
 	"crypto/hmac"
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/base32"
 	"encoding/binary"
 	"fmt"
-	"hash"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -50,19 +44,7 @@ type AttrInfo struct {
 	Timestamp uint64
 }
 
-type tickMsg struct{}
 
-type copyClearMsg struct{}
-
-type syncRightMsg struct {
-	EntryPath    string
-	Attrs        []AttrInfo
-	SelectedAttr string
-	SetDetailMode bool
-	ClearOnly    bool
-}
-type startNewMsg struct{ Prefix string }
-type refreshTOTPMsg struct{}
 
 type EntryDetailModel struct {
 	entryPath    string
@@ -155,63 +137,6 @@ type totpParams struct {
 	period    int
 	algorithm string
 	steam     bool
-}
-
-func parseOtpAuthURI(raw string) (totpParams, error) {
-	p := totpParams{digits: 6, period: 30, algorithm: "SHA1"}
-
-	if !strings.HasPrefix(raw, "otpauth://totp/") {
-		return p, fmt.Errorf("not an otpauth://totp/ URI")
-	}
-
-	u, err := url.Parse(raw)
-	if err != nil {
-		return p, fmt.Errorf("parse URI: %w", err)
-	}
-
-	q := u.Query()
-
-	secretStr := q.Get("secret")
-	if secretStr == "" {
-		return p, fmt.Errorf("missing secret parameter")
-	}
-	secretUpper := strings.ToUpper(strings.ReplaceAll(secretStr, " ", ""))
-	p.secret, err = base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.TrimRight(secretUpper, "="))
-	if err != nil {
-		return p, fmt.Errorf("decode secret: %w", err)
-	}
-
-	if d := q.Get("digits"); d != "" {
-		if strings.EqualFold(d, "S") {
-			p.steam = true
-			p.digits = 5
-		} else if v, err := strconv.Atoi(d); err == nil && v > 0 {
-			p.digits = v
-		}
-	}
-
-	if pr := q.Get("period"); pr != "" {
-		if v, err := strconv.Atoi(pr); err == nil && v > 0 {
-			p.period = v
-		}
-	}
-
-	if alg := q.Get("algorithm"); alg != "" {
-		p.algorithm = strings.ToUpper(alg)
-	}
-
-	return p, nil
-}
-
-func newHash(algorithm string) func() hash.Hash {
-	switch algorithm {
-	case "SHA256":
-		return sha256.New
-	case "SHA512":
-		return sha512.New
-	default:
-		return sha1.New
-	}
 }
 
 func (m EntryDetailModel) updateTOTP() EntryDetailModel {
@@ -677,25 +602,6 @@ func (m EntryDetailModel) renderAttrListView(b *strings.Builder, width, height i
 	return m.wrapBorder(b.String(), width, height)
 }
 
-func wrapLine(s string, width int) []string {
-	if width < 1 {
-		return []string{s}
-	}
-	if runewidth.StringWidth(s) <= width {
-		return []string{s}
-	}
-	var lines []string
-	remaining := s
-	for runewidth.StringWidth(remaining) > width {
-		cut := truncateString(remaining, width)
-		lines = append(lines, cut)
-		remaining = remaining[len(cut):]
-	}
-	if remaining != "" {
-		lines = append(lines, remaining)
-	}
-	return lines
-}
 
 func (m EntryDetailModel) renderEditKVView(b *strings.Builder, width, height int) string {
 	editW := width - 6

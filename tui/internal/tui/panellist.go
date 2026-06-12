@@ -52,20 +52,6 @@ var (
 				Bold(true)
 )
 
-func truncateString(s string, maxWidth int) string {
-	var b strings.Builder
-	cur := 0
-	for _, r := range s {
-		rw := runewidth.RuneWidth(r)
-		if cur+rw > maxWidth {
-			break
-		}
-		b.WriteRune(r)
-		cur += rw
-	}
-	return b.String()
-}
-
 func NewPanelListModel(db *model.DB, prefix string) PanelListModel {
 	si := textinput.New()
 	si.Prompt = "/"
@@ -191,16 +177,6 @@ func (m PanelListModel) rebuildItems() PanelListModel {
 func (m PanelListModel) Prefix() string {
 	return m.prefix
 }
-
-type searchEnterMsg struct{}
-type searchExitMsg struct{}
-type searchFocusMsg struct{}
-type searchBlurMsg struct{}
-type moveUpMsg struct{}
-type moveDownMsg struct{}
-type setPrefixMsg struct{ Prefix string }
-type refreshMsg struct{}
-type dbEventMsg struct{ Event model.Event }
 
 func (m PanelListModel) Update(msg tea.Msg) (PanelListModel, tea.Cmd) {
 	switch msg := msg.(type) {

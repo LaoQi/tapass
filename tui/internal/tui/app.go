@@ -27,19 +27,16 @@ type AppModel struct {
 	err      error
 }
 
-func NewApp() AppModel {
+func NewApp(dbPath string) AppModel {
+	w := NewWelcomeModel()
+	if dbPath != "" {
+		w, _ = w.Update(initialPathMsg{Path: dbPath})
+	}
 	return AppModel{
 		state:   StateWelcome,
-		welcome: NewWelcomeModel(),
+		welcome: w,
 		help:    NewHelpViewModel(),
 	}
-}
-
-func (m AppModel) SetInitialDBPath(path string) AppModel {
-	if path != "" {
-		m.welcome, _ = m.welcome.Update(initialPathMsg{Path: path})
-	}
-	return m
 }
 
 func (m AppModel) Init() tea.Cmd {
@@ -198,34 +195,4 @@ func (m AppModel) propagateSize() AppModel {
 	return m
 }
 
-type OpenVaultMsg struct {
-	DB   *model.DB
-	Path string
-}
 
-type CreateVaultMsg struct {
-	DB   *model.DB
-	Path string
-}
-
-type BackToMainMsg struct{}
-
-type OpenDBConfigMsg struct{}
-
-type AttrChangedMsg struct {
-	Key string
-}
-
-type PasswordChangedMsg struct{}
-
-type SaveVaultMsg struct{}
-
-type SaveAndQuitMsg struct{}
-
-type VaultSavedMsg struct {
-	QuitAfter bool
-}
-
-type ErrorMsg struct {
-	Err error
-}
