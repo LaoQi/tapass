@@ -217,7 +217,8 @@ func (m DBConfigModel) View() string {
 		Render(b.String())
 }
 
-func (m *DBConfigModel) SetSize(w, h int) {
+func (m DBConfigModel) SetSize(w, h int) DBConfigModel {
 	m.width = w
 	m.height = h
+	return m
 }

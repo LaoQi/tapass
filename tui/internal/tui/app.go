@@ -35,10 +35,11 @@ func NewApp() AppModel {
 	}
 }
 
-func (m *AppModel) SetInitialDBPath(path string) {
+func (m AppModel) SetInitialDBPath(path string) AppModel {
 	if path != "" {
-		m.welcome.SetInitialPath(path)
+		m.welcome, _ = m.welcome.Update(initialPathMsg{Path: path})
 	}
+	return m
 }
 
 func (m AppModel) Init() tea.Cmd {
@@ -67,13 +68,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.help.Active() {
 			switch msg.String() {
 			case "esc", "?", "q":
-				m.help.Close()
+				m.help, _ = m.help.Update(helpCloseMsg{})
 			}
 			return m, nil
 		}
 
 		if msg.String() == "?" && m.state == StateMainView && m.mainview.MainState() == StateBrowse && m.mainview.focus != focusSearch && m.mainview.rightPanel.State() == detailView {
-			m.help.Toggle()
+			m.help, _ = m.help.Update(helpToggleMsg{})
 			return m, nil
 		}
 
@@ -99,7 +100,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case BackToMainMsg:
 		m.state = StateMainView
-		m.mainview.RefreshAll()
+		m.mainview, _ = m.mainview.Update(refreshMsg{})
 		m = m.propagateSize()
 		return m, nil
 
@@ -110,13 +111,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case AttrChangedMsg:
-		m.mainview.HandleDBEvent(model.Event{Type: model.EventAttrSet, Key: msg.Key})
-		m.mainview.SetDirty(true)
+		m.mainview, _ = m.mainview.Update(mainViewModelEventMsg{Event: model.Event{Type: model.EventAttrSet, Key: msg.Key}})
+		m.mainview, _ = m.mainview.Update(dirtyMsg{Dirty: true})
 		return m, nil
 
 	case PasswordChangedMsg:
 		m.state = StateMainView
-		m.mainview.SetDirty(true)
+		m.mainview, _ = m.mainview.Update(dirtyMsg{Dirty: true})
 		m = m.propagateSize()
 		return m, nil
 
@@ -134,13 +135,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if err := m.db.Save(); err != nil {
-			m.mainview.CancelQuit()
+			m.mainview, _ = m.mainview.Update(cancelQuitMsg{})
 			return m, func() tea.Msg { return ErrorMsg{Err: err} }
 		}
 		return m, func() tea.Msg { return VaultSavedMsg{QuitAfter: true} }
 
 	case VaultSavedMsg:
-		m.mainview.SetDirty(false)
+		m.mainview, _ = m.mainview.Update(dirtyMsg{Dirty: false})
 		if msg.QuitAfter {
 			return m, tea.Quit
 		}
@@ -190,10 +191,10 @@ func (m AppModel) propagateSize() AppModel {
 		return m
 	}
 
-	m.welcome.SetSize(w, h)
-	m.mainview.SetSize(w, h)
-	m.dbconfig.SetSize(w, h)
-	m.help.SetSize(w, h)
+	m.welcome, _ = m.welcome.Update(setWelcomeSizeMsg{Width: w, Height: h})
+	m.mainview = m.mainview.SetSize(w, h)
+	m.dbconfig = m.dbconfig.SetSize(w, h)
+	m.help, _ = m.help.Update(setHelpSizeMsg{Width: w, Height: h})
 	return m
 }
 

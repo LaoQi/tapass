@@ -24,6 +24,9 @@ const (
 	WelcomeNewPasswordConfirm
 )
 
+type initialPathMsg struct{ Path string }
+type setWelcomeSizeMsg struct{ Width, Height int }
+
 type WelcomeModel struct {
 	state         WelcomeState
 	pathInput     textinput.Model
@@ -67,6 +70,18 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+	case initialPathMsg:
+		if msg.Path != "" {
+			m.initialPath = msg.Path
+			m.pathInput.SetValue(msg.Path)
+			m.state = WelcomeOpenPassword
+			m.passwordInput.Focus()
+		}
+		return m, nil
+	case setWelcomeSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
@@ -386,16 +401,4 @@ func commonPrefix(strs []string) string {
 		}
 	}
 	return p
-}
-
-func (m *WelcomeModel) SetSize(w, h int) {
-	m.width = w
-	m.height = h
-}
-
-func (m *WelcomeModel) SetInitialPath(path string) {
-	m.initialPath = path
-	m.pathInput.SetValue(path)
-	m.state = WelcomeOpenPassword
-	m.passwordInput.Focus()
 }

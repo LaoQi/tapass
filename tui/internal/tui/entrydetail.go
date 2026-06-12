@@ -54,6 +54,16 @@ type tickMsg struct{}
 
 type copyClearMsg struct{}
 
+type syncRightMsg struct {
+	EntryPath    string
+	Attrs        []AttrInfo
+	SelectedAttr string
+	SetDetailMode bool
+	ClearOnly    bool
+}
+type startNewMsg struct{ Prefix string }
+type refreshTOTPMsg struct{}
+
 type EntryDetailModel struct {
 	entryPath    string
 	db           *model.DB
@@ -95,53 +105,31 @@ func NewEntryDetailModel(entryPath string, db *model.DB) EntryDetailModel {
 		keyInput:  keyInput,
 		valueArea: valueArea,
 	}
-	m.SetEntryPath(entryPath)
+	if entryPath != "" {
+		m.entryPath = entryPath
+	}
 	return m
 }
 
-func (m *EntryDetailModel) SetEntryPath(path string) {
-	m.entryPath = path
-	m.selectedAttr = ""
-	m.selectedEntry = nil
-	m.state = detailView
-	m.copySuccess = false
-}
-
-func (m *EntryDetailModel) EntryPath() string {
+func (m EntryDetailModel) EntryPath() string {
 	return m.entryPath
 }
 
-func (m *EntryDetailModel) Refresh() {
+func (m EntryDetailModel) refresh() EntryDetailModel {
 	if m.selectedAttr == "" || m.db == nil {
 		m.selectedEntry = nil
-		return
+		return m
 	}
 	fullKey := m.entryPath + "/" + m.selectedAttr
 	if e, ok := m.db.Get(fullKey); ok {
 		m.selectedEntry = &e
 		if m.selectedAttr == "TOTP" {
-			m.updateTOTP()
+			m = m.updateTOTP()
 		}
 	} else {
 		m.selectedEntry = nil
 	}
-}
-
-func (m *EntryDetailModel) HandleEvent(evt model.Event) {
-	if m.db == nil {
-		return
-	}
-	switch evt.Type {
-	case model.EventAttrSet:
-		if evt.Key == m.entryPath+"/"+m.selectedAttr {
-			m.Refresh()
-		}
-	case model.EventAttrDeleted:
-		if evt.Key == m.entryPath+"/"+m.selectedAttr {
-			m.selectedEntry = nil
-			m.selectedAttr = ""
-		}
-	}
+	return m
 }
 
 func (m EntryDetailModel) Init() tea.Cmd {
@@ -157,72 +145,8 @@ func (m EntryDetailModel) State() detailState {
 	return m.state
 }
 
-func (m *EntryDetailModel) HasSelectedEntry() bool {
+func (m EntryDetailModel) HasSelectedEntry() bool {
 	return m.selectedEntry != nil
-}
-
-func (m *EntryDetailModel) SelectAttr(name string) {
-	m.selectedAttr = name
-	m.selectedEntry = nil
-	m.copySuccess = false
-
-	if m.db == nil || name == "" {
-		return
-	}
-
-	fullKey := m.entryPath + "/" + name
-	if e, ok := m.db.Get(fullKey); ok {
-		m.selectedEntry = &e
-		if name == "TOTP" {
-			m.updateTOTP()
-		}
-	}
-}
-
-func (m *EntryDetailModel) SetAttrList(attrs []AttrInfo) {
-	m.mode = detailModeAttrList
-	m.attrList = attrs
-	m.selectedAttr = ""
-	m.selectedEntry = nil
-	m.copySuccess = false
-}
-
-func (m *EntryDetailModel) SetDetailMode() {
-	m.mode = detailModeDetail
-	m.attrList = nil
-}
-
-func (m *EntryDetailModel) StartEdit() {
-	if m.selectedEntry == nil || m.selectedAttr == "" {
-		return
-	}
-	m.state = detailEditKV
-	m.editMode = editModeEdit
-	m.editKey = m.entryPath + "/" + m.selectedAttr
-	m.keyInput.SetValue(m.editKey)
-	m.keyInput.CursorEnd()
-	m.keyInput.Blur()
-	m.valueArea.SetValue(string(m.selectedEntry.Value))
-	m.valueArea.Focus()
-	m.valueArea.CursorEnd()
-	m.err = nil
-	m.copySuccess = false
-}
-
-func (m *EntryDetailModel) StartNew(prefix string) {
-	m.state = detailEditKV
-	m.editMode = editModeNew
-	m.editKey = ""
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
-	m.keyInput.SetValue(prefix)
-	m.keyInput.CursorEnd()
-	m.keyInput.Focus()
-	m.valueArea.SetValue("")
-	m.valueArea.Blur()
-	m.err = nil
-	m.copySuccess = false
 }
 
 type totpParams struct {
@@ -290,9 +214,9 @@ func newHash(algorithm string) func() hash.Hash {
 	}
 }
 
-func (m *EntryDetailModel) updateTOTP() {
+func (m EntryDetailModel) updateTOTP() EntryDetailModel {
 	if m.selectedEntry == nil {
-		return
+		return m
 	}
 
 	raw := string(m.selectedEntry.Value)
@@ -304,7 +228,7 @@ func (m *EntryDetailModel) updateTOTP() {
 		if decErr != nil {
 			m.totpCode = "invalid secret"
 			m.totpRemaining = 0
-			return
+			return m
 		}
 		params = totpParams{secret: key, digits: 6, period: 30, algorithm: "SHA1"}
 	}
@@ -343,22 +267,103 @@ func (m *EntryDetailModel) updateTOTP() {
 	}
 
 	m.totpRemaining = int(params.period - int(time.Now().Unix()%int64(params.period)))
+	return m
 }
 
 func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case syncRightMsg:
+		if msg.ClearOnly {
+			m.entryPath = ""
+			m.selectedAttr = ""
+			m.selectedEntry = nil
+			m.state = detailView
+			m.copySuccess = false
+			m.mode = detailModeAttrList
+			m.attrList = nil
+			return m, nil
+		}
+		if msg.EntryPath != "" {
+			m.entryPath = msg.EntryPath
+			m.selectedAttr = msg.SelectedAttr
+			m.selectedEntry = nil
+			m.copySuccess = false
+			if m.db != nil && msg.SelectedAttr != "" {
+				fullKey := msg.EntryPath + "/" + msg.SelectedAttr
+				if e, ok := m.db.Get(fullKey); ok {
+					m.selectedEntry = &e
+				if msg.SelectedAttr == "TOTP" {
+					m = m.updateTOTP()
+				}
+				}
+			}
+		} else {
+			m.entryPath = ""
+			m.selectedAttr = ""
+			m.selectedEntry = nil
+			m.copySuccess = false
+			if msg.SetDetailMode {
+				m.mode = detailModeAttrList
+				m.attrList = msg.Attrs
+			}
+		}
+		if msg.SetDetailMode {
+			m.mode = detailModeDetail
+			m.attrList = nil
+		}
+		return m, nil
+	case dbEventMsg:
+		if m.db == nil {
+			return m, nil
+		}
+		switch msg.Event.Type {
+		case model.EventAttrSet:
+			if msg.Event.Key == m.entryPath+"/"+m.selectedAttr {
+				m = m.refresh()
+			}
+		case model.EventAttrDeleted:
+			if msg.Event.Key == m.entryPath+"/"+m.selectedAttr {
+				m.selectedEntry = nil
+				m.selectedAttr = ""
+			}
+		}
+		return m, nil
+	case refreshMsg:
+		m = m.refresh()
+		return m, nil
+	case startNewMsg:
+		m.state = detailEditKV
+		m.editMode = editModeNew
+		m.editKey = ""
+		prefix := msg.Prefix
+		if prefix != "" && !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		m.keyInput.SetValue(prefix)
+		m.keyInput.CursorEnd()
+		m.keyInput.Focus()
+		m.valueArea.SetValue("")
+		m.valueArea.Blur()
+		m.err = nil
+		m.copySuccess = false
+		return m, nil
+	case refreshTOTPMsg:
+		if m.selectedAttr == "TOTP" && m.selectedEntry != nil {
+			m = m.updateTOTP()
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.state == detailEditKV {
-			m.resizeEditor()
+			m = m.resizeEditor()
 		}
 
 	case tickMsg:
 		if m.selectedAttr == "TOTP" && m.selectedEntry != nil {
-			m.updateTOTP()
+			m = m.updateTOTP()
 			return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 				return tickMsg{}
 			})
@@ -372,12 +377,22 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 		switch m.state {
 		case detailView:
 			switch msg.String() {
-			case "e":
-				if m.selectedEntry != nil {
-					m.StartEdit()
-					m.resizeEditor()
-					return m, nil
-				}
+		case "e":
+			if m.selectedEntry != nil {
+				m.state = detailEditKV
+				m.editMode = editModeEdit
+				m.editKey = m.entryPath + "/" + m.selectedAttr
+				m.keyInput.SetValue(m.editKey)
+				m.keyInput.CursorEnd()
+				m.keyInput.Blur()
+				m.valueArea.SetValue(string(m.selectedEntry.Value))
+				m.valueArea.Focus()
+				m.valueArea.CursorEnd()
+				m.err = nil
+				m.copySuccess = false
+				m = m.resizeEditor()
+				return m, nil
+			}
 			case "y":
 				if m.selectedEntry != nil {
 					var copyText string
@@ -454,10 +469,10 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *EntryDetailModel) saveKV() (EntryDetailModel, tea.Cmd) {
+func (m EntryDetailModel) saveKV() (EntryDetailModel, tea.Cmd) {
 	if m.db == nil {
 		m.state = detailView
-		return *m, nil
+		return m, nil
 	}
 
 	var fullKey string
@@ -467,7 +482,7 @@ func (m *EntryDetailModel) saveKV() (EntryDetailModel, tea.Cmd) {
 		fullKey = m.keyInput.Value()
 		if fullKey == "" || fullKey == "/" {
 			m.err = fmt.Errorf("key cannot be empty")
-			return *m, nil
+			return m, nil
 		}
 		if !strings.HasPrefix(fullKey, "/") {
 			fullKey = "/" + fullKey
@@ -485,18 +500,18 @@ func (m *EntryDetailModel) saveKV() (EntryDetailModel, tea.Cmd) {
 		m.state = detailView
 		m.keyInput.Blur()
 		m.valueArea.Blur()
-		m.Refresh()
-		return *m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
+		m = m.refresh()
+		return m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
 	}
 
 	m.state = detailView
 	m.keyInput.Blur()
 	m.valueArea.Blur()
-	m.Refresh()
-	return *m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
+	m = m.refresh()
+	return m, tea.Batch(append([]tea.Cmd{func() tea.Msg { return AttrChangedMsg{Key: fullKey} }}, cmds...)...)
 }
 
-func (m *EntryDetailModel) resizeEditor() {
+func (m EntryDetailModel) resizeEditor() EntryDetailModel {
 	w := m.width
 	if w < 1 {
 		w = 30
@@ -519,6 +534,7 @@ func (m *EntryDetailModel) resizeEditor() {
 	m.valueArea.SetWidth(editW)
 	m.valueArea.SetHeight(editH)
 	m.keyInput.SetWidth(editW)
+	return m
 }
 
 func (m EntryDetailModel) View() string {
@@ -727,14 +743,16 @@ func (m EntryDetailModel) wrapBorder(content string, width, height int) string {
 	return style.Width(width - 2).Height(height - 2).Render(content)
 }
 
-func (m *EntryDetailModel) SetSize(w, h int) {
+func (m EntryDetailModel) SetSize(w, h int) EntryDetailModel {
 	m.width = w
 	m.height = h
 	if m.state == detailEditKV {
-		m.resizeEditor()
+		m = m.resizeEditor()
 	}
+	return m
 }
 
-func (m *EntryDetailModel) SetFocused(f bool) {
+func (m EntryDetailModel) SetFocused(f bool) EntryDetailModel {
 	m.focused = f
+	return m
 }

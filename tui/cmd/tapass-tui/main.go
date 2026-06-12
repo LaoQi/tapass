@@ -21,7 +21,7 @@ func main() {
 	}
 
 	app := tui.NewApp()
-	app.SetInitialDBPath(dbPath)
+	app = app.SetInitialDBPath(dbPath)
 
 	p := tea.NewProgram(app)
 

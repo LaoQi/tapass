@@ -4,8 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+type helpToggleMsg struct{}
+type helpCloseMsg struct{}
+type setHelpSizeMsg struct{ Width, Height int }
 
 type HelpViewModel struct {
 	active bool
@@ -21,17 +26,17 @@ func (m HelpViewModel) Active() bool {
 	return m.active
 }
 
-func (m *HelpViewModel) Toggle() {
-	m.active = !m.active
-}
-
-func (m *HelpViewModel) Close() {
-	m.active = false
-}
-
-func (m *HelpViewModel) SetSize(w, h int) {
-	m.width = w
-	m.height = h
+func (m HelpViewModel) Update(msg tea.Msg) (HelpViewModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case helpToggleMsg:
+		m.active = !m.active
+	case helpCloseMsg:
+		m.active = false
+	case setHelpSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+	}
+	return m, nil
 }
 
 var (
