@@ -78,20 +78,20 @@ func NewMainViewModel(db *model.DB, dbPath string, prefix string, w, h int) Main
 
 func (m MainViewModel) syncRightFromLeft() MainViewModel {
 	if m.leftPanel.ItemCount() == 0 {
-		m.rightPanel, _ = m.rightPanel.Update(syncRightMsg{ClearOnly: true})
+		m.rightPanel = updateRight(m.rightPanel, syncRightMsg{ClearOnly: true})
 		return m
 	}
 	selected := m.leftPanel.SelectedItem()
 	if selected.Depth > 0 {
 		attrs := m.queryAttributes(selected.FullPath)
-		m.rightPanel, _ = m.rightPanel.Update(syncRightMsg{
+		m.rightPanel = updateRight(m.rightPanel, syncRightMsg{
 			EntryPath:    "",
 			Attrs:        attrs,
 			SetDetailMode: true,
 		})
 	} else {
 		entryPath := model.ParentPath(selected.FullPath)
-		m.rightPanel, _ = m.rightPanel.Update(syncRightMsg{
+		m.rightPanel = updateRight(m.rightPanel, syncRightMsg{
 			EntryPath:    entryPath,
 			SelectedAttr: selected.Name,
 			SetDetailMode: true,
@@ -121,13 +121,14 @@ func (m MainViewModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
+func (m MainViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+	case resizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m = m.propagatePanelSize()
 		return m, nil
 
 	case dirtyMsg:
@@ -139,19 +140,19 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 		}
 		return m, nil
 	case mainViewModelEventMsg:
-		m.leftPanel, _ = m.leftPanel.Update(dbEventMsg{Event: msg.Event})
-		m.rightPanel, _ = m.rightPanel.Update(dbEventMsg{Event: msg.Event})
+		m.leftPanel = updateLeft(m.leftPanel, dbEventMsg{Event: msg.Event})
+		m.rightPanel = updateRight(m.rightPanel, dbEventMsg{Event: msg.Event})
 		if msg.Event.Type == model.EventAttrSet || msg.Event.Type == model.EventAttrDeleted {
 			m = m.syncRightFromLeft()
 		}
 		return m, nil
 	case refreshMsg:
-		m.leftPanel, _ = m.leftPanel.Update(refreshMsg{})
-		m.rightPanel, _ = m.rightPanel.Update(refreshMsg{})
+		m.leftPanel = updateLeft(m.leftPanel, refreshMsg{})
+		m.rightPanel = updateRight(m.rightPanel, refreshMsg{})
 		return m, nil
 
 	case tickMsg:
-		m.rightPanel, cmd = m.rightPanel.Update(msg)
+		m.rightPanel, cmd = updateRightCmd(m.rightPanel, msg)
 		if m.rightPanel.selectedAttr == "TOTP" && m.rightPanel.HasSelectedEntry() {
 			return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 				return tickMsg{}
@@ -161,15 +162,15 @@ func (m MainViewModel) Update(msg tea.Msg) (MainViewModel, tea.Cmd) {
 		return m, nil
 
 	case copyClearMsg:
-		m.rightPanel, cmd = m.rightPanel.Update(msg)
+		m.rightPanel, cmd = updateRightCmd(m.rightPanel, msg)
 		return m, cmd
 
 	case tea.KeyPressMsg:
 		switch m.state {
 		case StatePendingQuit:
-			return m.handlePendingQuitKey(msg)
+			m, cmd = m.handlePendingQuitKey(msg)
 		case StateBrowse:
-			return m.handleBrowseKey(msg)
+			m, cmd = m.handleBrowseKey(msg)
 		}
 	}
 
@@ -214,7 +215,7 @@ func (m MainViewModel) handleBrowseKey(msg tea.KeyPressMsg) (MainViewModel, tea.
 	if m.focus == focusRight {
 		if m.rightPanel.State() != detailView || isDetailKey(msg.String()) {
 			var cmd tea.Cmd
-			m.rightPanel, cmd = m.rightPanel.Update(msg)
+			m.rightPanel, cmd = updateRightCmd(m.rightPanel, msg)
 			return m, cmd
 		}
 	}
@@ -231,10 +232,11 @@ func (m MainViewModel) handleBrowseKey(msg tea.KeyPressMsg) (MainViewModel, tea.
 	case "tab":
 		m.focus = (m.focus + 1) % 3
 		if m.focus == focusSearch {
-			m.leftPanel, _ = m.leftPanel.Update(searchFocusMsg{})
+			m.leftPanel = updateLeft(m.leftPanel, searchFocusMsg{})
 		} else {
-			m.leftPanel, _ = m.leftPanel.Update(searchBlurMsg{})
+			m.leftPanel = updateLeft(m.leftPanel, searchBlurMsg{})
 		}
+		m = m.propagatePanelFocus()
 	case "ctrl+s":
 		if m.dirty {
 			return m, func() tea.Msg { return SaveVaultMsg{} }
@@ -244,8 +246,9 @@ func (m MainViewModel) handleBrowseKey(msg tea.KeyPressMsg) (MainViewModel, tea.
 	case "e", "y", "d":
 		if m.focus == focusLeft && m.leftPanel.ItemCount() > 0 && m.leftPanel.SelectedItem().Depth == 0 {
 			m.focus = focusRight
+			m = m.propagatePanelFocus()
 			var cmd tea.Cmd
-			m.rightPanel, cmd = m.rightPanel.Update(msg)
+			m.rightPanel, cmd = updateRightCmd(m.rightPanel, msg)
 			return m, cmd
 		}
 	case "q":
@@ -264,7 +267,7 @@ func (m MainViewModel) handleBrowseKey(msg tea.KeyPressMsg) (MainViewModel, tea.
 
 func (m MainViewModel) handleUp() MainViewModel {
 	if m.focus == focusLeft {
-		m.leftPanel, _ = m.leftPanel.Update(moveUpMsg{})
+		m.leftPanel = updateLeft(m.leftPanel, moveUpMsg{})
 		m = m.syncRightFromLeft()
 	}
 	return m
@@ -274,15 +277,17 @@ func (m MainViewModel) handleSearchFocusKey(msg tea.KeyPressMsg) (MainViewModel,
 	switch msg.String() {
 	case "tab":
 		m.focus = focusLeft
-		m.leftPanel, _ = m.leftPanel.Update(searchBlurMsg{})
+		m.leftPanel = updateLeft(m.leftPanel, searchBlurMsg{})
+		m = m.propagatePanelFocus()
 		return m, nil
 	case "enter":
 		m.focus = focusLeft
-		m.leftPanel, _ = m.leftPanel.Update(searchBlurMsg{})
+		m.leftPanel = updateLeft(m.leftPanel, searchBlurMsg{})
+		m = m.propagatePanelFocus()
 		return m, nil
 	default:
 		var cmd tea.Cmd
-		m.leftPanel, cmd = m.leftPanel.Update(msg)
+		m.leftPanel, cmd = updateLeftCmd(m.leftPanel, msg)
 		m = m.syncRightFromLeft()
 		return m, cmd
 	}
@@ -290,15 +295,16 @@ func (m MainViewModel) handleSearchFocusKey(msg tea.KeyPressMsg) (MainViewModel,
 
 func (m MainViewModel) exitSearch() MainViewModel {
 	m.searchActive = false
-	m.leftPanel, _ = m.leftPanel.Update(searchExitMsg{})
+	m.leftPanel = updateLeft(m.leftPanel, searchExitMsg{})
 	m = m.syncRightFromLeft()
 	m.focus = focusLeft
+	m = m.propagatePanelFocus()
 	return m
 }
 
 func (m MainViewModel) handleDown() MainViewModel {
 	if m.focus == focusLeft {
-		m.leftPanel, _ = m.leftPanel.Update(moveDownMsg{})
+		m.leftPanel = updateLeft(m.leftPanel, moveDownMsg{})
 		m = m.syncRightFromLeft()
 	}
 	return m
@@ -316,8 +322,9 @@ func (m MainViewModel) handleNewKV() MainViewModel {
 	} else {
 		prefix = m.rightPanel.EntryPath()
 	}
-	m.rightPanel, _ = m.rightPanel.Update(startNewMsg{Prefix: prefix})
+	m.rightPanel = updateRight(m.rightPanel, startNewMsg{Prefix: prefix})
 	m.focus = focusRight
+	m = m.propagatePanelFocus()
 	return m
 }
 
@@ -325,16 +332,17 @@ func (m MainViewModel) handleLeft() MainViewModel {
 	switch m.focus {
 	case focusSearch:
 		m.focus = focusLeft
-		m.leftPanel, _ = m.leftPanel.Update(searchBlurMsg{})
+		m.leftPanel = updateLeft(m.leftPanel, searchBlurMsg{})
 	case focusRight:
 		m.focus = focusLeft
 	case focusLeft:
 		if m.leftPanel.Prefix() != "" {
 			parent := model.ParentPath(m.leftPanel.Prefix())
-			m.leftPanel, _ = m.leftPanel.Update(setPrefixMsg{Prefix: parent})
+			m.leftPanel = updateLeft(m.leftPanel, setPrefixMsg{Prefix: parent})
 			m = m.syncRightFromLeft()
 		}
 	}
+	m = m.propagatePanelFocus()
 	return m
 }
 
@@ -345,19 +353,21 @@ func (m MainViewModel) handleRight() MainViewModel {
 
 	selected := m.leftPanel.SelectedItem()
 	if selected.Depth > 0 {
-		m.leftPanel, _ = m.leftPanel.Update(setPrefixMsg{Prefix: selected.FullPath})
+		m.leftPanel = updateLeft(m.leftPanel, setPrefixMsg{Prefix: selected.FullPath})
 		m = m.syncRightFromLeft()
 	} else {
 		m.focus = focusRight
 	}
+	m = m.propagatePanelFocus()
 	return m
 }
 
 func (m MainViewModel) handleEnterSearch() MainViewModel {
-	m.leftPanel, _ = m.leftPanel.Update(searchEnterMsg{})
+	m.leftPanel = updateLeft(m.leftPanel, searchEnterMsg{})
 	m.searchActive = true
 	m.focus = focusSearch
-	m.leftPanel, _ = m.leftPanel.Update(searchFocusMsg{})
+	m.leftPanel = updateLeft(m.leftPanel, searchFocusMsg{})
+	m = m.propagatePanelFocus()
 	return m
 }
 
@@ -438,7 +448,7 @@ func (m MainViewModel) renderKey(text string, enabled bool) string {
 	return keyDisabledStyle.Render(text)
 }
 
-func (m MainViewModel) View() string {
+func (m MainViewModel) View() tea.View {
 	w := m.width
 	h := m.height
 	if w < 1 {
@@ -458,16 +468,8 @@ func (m MainViewModel) View() string {
 		leftWidth = w - rightWidth
 	}
 
-	mainHeight := h - 2
-
-	m.leftPanel = m.leftPanel.SetSize(leftWidth, mainHeight)
-	m.rightPanel = m.rightPanel.SetSize(rightWidth, mainHeight)
-
-	m.leftPanel = m.leftPanel.SetFocused(m.focus == focusLeft || m.focus == focusSearch)
-	m.rightPanel = m.rightPanel.SetFocused(m.focus == focusRight)
-
-	leftView := m.leftPanel.View()
-	rightView := m.rightPanel.View()
+	leftView := m.leftPanel.View().Content
+	rightView := m.rightPanel.View().Content
 
 	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftView, rightView)
 
@@ -486,11 +488,55 @@ func (m MainViewModel) View() string {
 	statusText = m.buildStatusBar()
 	status := statusBarStyle.Width(w).Render(statusText)
 
-	return lipgloss.JoinVertical(lipgloss.Top, titleLine, mainContent, status)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Top, titleLine, mainContent, status))
 }
 
-func (m MainViewModel) SetSize(w, h int) MainViewModel {
-	m.width = w
-	m.height = h
+func (m MainViewModel) propagatePanelSize() MainViewModel {
+	w := m.width
+	h := m.height
+	if w < 1 || h < 1 {
+		return m
+	}
+
+	leftWidth := w / 3
+	if leftWidth < 18 {
+		leftWidth = 18
+	}
+	rightWidth := w - leftWidth
+	if rightWidth < 22 {
+		rightWidth = 22
+		leftWidth = w - rightWidth
+	}
+	mainHeight := h - 2
+
+	m.leftPanel = updateLeft(m.leftPanel, resizeMsg{Width: leftWidth, Height: mainHeight})
+	m.rightPanel = updateRight(m.rightPanel, resizeMsg{Width: rightWidth, Height: mainHeight})
+	m = m.propagatePanelFocus()
 	return m
+}
+
+func (m MainViewModel) propagatePanelFocus() MainViewModel {
+	m.leftPanel = updateLeft(m.leftPanel, setFocusMsg{Focused: m.focus == focusLeft || m.focus == focusSearch})
+	m.rightPanel = updateRight(m.rightPanel, setFocusMsg{Focused: m.focus == focusRight})
+	return m
+}
+
+func updateLeft(m PanelListModel, msg tea.Msg) PanelListModel {
+	np, _ := m.Update(msg)
+	return np.(PanelListModel)
+}
+
+func updateLeftCmd(m PanelListModel, msg tea.Msg) (PanelListModel, tea.Cmd) {
+	np, cmd := m.Update(msg)
+	return np.(PanelListModel), cmd
+}
+
+func updateRight(m EntryDetailModel, msg tea.Msg) EntryDetailModel {
+	np, _ := m.Update(msg)
+	return np.(EntryDetailModel)
+}
+
+func updateRightCmd(m EntryDetailModel, msg tea.Msg) (EntryDetailModel, tea.Cmd) {
+	np, cmd := m.Update(msg)
+	return np.(EntryDetailModel), cmd
 }

@@ -62,13 +62,14 @@ func (m DBConfigModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m DBConfigModel) Update(msg tea.Msg) (DBConfigModel, tea.Cmd) {
+func (m DBConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+	case resizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
 	case tea.KeyPressMsg:
 		m.err = nil
 		m.success = false
@@ -151,7 +152,7 @@ func (m DBConfigModel) Update(msg tea.Msg) (DBConfigModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m DBConfigModel) View() string {
+func (m DBConfigModel) View() tea.View {
 	width := m.width
 	if width < 1 {
 		width = 40
@@ -211,14 +212,10 @@ func (m DBConfigModel) View() string {
 		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 	}
 
-	return lipgloss.NewStyle().
+	return tea.NewView(lipgloss.NewStyle().
 		Width(width).
 		Height(height).
-		Render(b.String())
+		Render(b.String()))
 }
 
-func (m DBConfigModel) SetSize(w, h int) DBConfigModel {
-	m.width = w
-	m.height = h
-	return m
-}
+

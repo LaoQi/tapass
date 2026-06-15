@@ -178,7 +178,7 @@ func (m PanelListModel) Prefix() string {
 	return m.prefix
 }
 
-func (m PanelListModel) Update(msg tea.Msg) (PanelListModel, tea.Cmd) {
+func (m PanelListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case searchEnterMsg:
 		m.searchMode = true
@@ -223,6 +223,13 @@ func (m PanelListModel) Update(msg tea.Msg) (PanelListModel, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case resizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+	case setFocusMsg:
+		m.focused = msg.Focused
+		return m, nil
 	}
 
 	if m.searchMode && m.searchInput.Focused() {
@@ -241,9 +248,9 @@ func (m PanelListModel) Update(msg tea.Msg) (PanelListModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m PanelListModel) Init() {}
+func (m PanelListModel) Init() tea.Cmd { return nil }
 
-func (m PanelListModel) View() string {
+func (m PanelListModel) View() tea.View {
 	width := m.width
 	if width < 1 {
 		width = 20
@@ -288,7 +295,7 @@ func (m PanelListModel) View() string {
 			b.WriteString("\n  (empty)")
 		}
 		content := b.String()
-		return m.wrapBorder(content, width, height)
+		return tea.NewView(m.wrapBorder(content, width, height))
 	}
 
 	displayHeight := height - 4
@@ -339,7 +346,7 @@ func (m PanelListModel) View() string {
 		}
 	}
 
-	return m.wrapBorder(b.String(), width, height)
+	return tea.NewView(m.wrapBorder(b.String(), width, height))
 }
 
 func (m PanelListModel) wrapBorder(content string, width, height int) string {
@@ -359,17 +366,6 @@ func (m PanelListModel) SelectedItem() model.ListItem {
 
 func (m PanelListModel) ItemCount() int {
 	return len(m.items)
-}
-
-func (m PanelListModel) SetSize(w, h int) PanelListModel {
-	m.width = w
-	m.height = h
-	return m
-}
-
-func (m PanelListModel) SetFocused(f bool) PanelListModel {
-	m.focused = f
-	return m
 }
 
 

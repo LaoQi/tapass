@@ -74,12 +74,8 @@ type startNewMsg struct{ Prefix string }
 
 type refreshTOTPMsg struct{}
 
-type helpToggleMsg struct{}
-
-type helpCloseMsg struct{}
-
-type setHelpSizeMsg struct{ Width, Height int }
+type resizeMsg struct{ Width, Height int }
 
 type initialPathMsg struct{ Path string }
 
-type setWelcomeSizeMsg struct{ Width, Height int }
+type setFocusMsg struct{ Focused bool }

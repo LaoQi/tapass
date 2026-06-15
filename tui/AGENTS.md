@@ -22,13 +22,13 @@ internal/
     listing.go              # ListItem(Depth字段) + normalizePathPrefix/ParentPath/EntryPath
     listing_test.go
   tui/                      # Bubble Tea 视图层
-    app.go                  # 主 Model + 窗口路由 + 消息类型（含 SaveVaultMsg/SaveAndQuitMsg/VaultSavedMsg/PasswordChangedMsg）+ 帮助覆盖层路由
+    app.go                  # 主 Model + AppState(DB/DBPath/Dirty) + page tea.Model 页面路由 + 窗口状态(StateWelcome/StateMainView/StateHelp/StateDBConfig) + 消息类型 + switchToMainView/updateMainView 辅助
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）
-    mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点(focusSearch/focusLeft/focusRight) + 搜索过滤 + copyClearMsg转发
-    panellist.go            # 列表面板（rawKeys存储原始key + buildItems聚合 + rebuildItems过滤聚合 + 分组/属性图标 + 搜索框 + Depth区分 + 滚动跟随）
-    entrydetail.go          # 条目详情/编辑属性（detailState: detailView/detailEditKV/detailConfirmDelete + 属性视图 + TOTP/Steam TOTP + 复制到剪贴板）
-    helpview.go             # 帮助覆盖层（? 键触发，居中面板显示快捷键说明）
-    dbconfig.go             # 数据库设置（改密，成功发 PasswordChangedMsg）
+    mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点 + 搜索过滤 + propagatePanelSize/propagatePanelFocus + updateLeft/updateRight 类型断言辅助
+    panellist.go            # 列表面板（rawKeys存储原始key + buildItems聚合 + rebuildItems过滤聚合 + 分组/属性图标 + 搜索框 + Depth区分 + 滚动跟随 + resizeMsg/setFocusMsg 消息驱动）
+    entrydetail.go          # 条目详情/编辑属性（detailState + 属性视图 + TOTP/Steam TOTP + 复制到剪贴板 + resizeMsg/setFocusMsg 消息驱动）
+    helpview.go             # 帮助视图（StateHelp 窗口状态，居中面板显示快捷键说明）
+    dbconfig.go             # 数据库设置（改密，成功发 PasswordChangedMsg + resizeMsg 消息驱动）
     dialog.go               # 新建条目对话框
     styles.go               # 共享样式（含 TOTP/进度条/dirty 标题/状态栏按键/复制成功样式）
 ```
@@ -67,7 +67,7 @@ internal/
 - 存储扩展通过实现 `store.Store` 接口（先 local，后续 WebDAV）→ **已删除 store 包，DB 统管持久化**
 - Store.Save 需传入 path 参数（vault 不持有文件路径）→ **DB.Save() 自身持有 dbPath**
 - vault 包不操作文件系统，文件 I/O 由 store 实现负责（local 使用原子写入）→ **DB 内部 atomicWriteFile 处理**
-- TUI 组件均持有 width/height，通过 SetSize 响应 resize
+- TUI 组件均持有 width/height，通过 resizeMsg 消息响应 resize（不再使用 SetSize 方法）
 - 共享样式定义在 `tui/styles.go`
 - lipgloss v2 border 渲染存在 2 列内部开销：设置 `Width(w)` 时实际可用内容宽度为 `w-2`，因此 `wrapBorder` 设置 `Width(width-2)` 后实际可用宽度为 `width-4`
 - 列表面板标题和详情面板标题均使用底部边框分隔符（NormalBorder bottom），渲染宽度需减 2 抵消内部开销
@@ -89,7 +89,7 @@ internal/
 - 不保存退出：n → 直接 tea.Quit
 - Ctrl+S 仅保存：dirty 时保存，非 dirty 时静默无操作
 - `c` 键打开设置：在 app 层直接响应，不转发到子面板，搜索框聚焦时屏蔽
-- `?` 键打开帮助覆盖层：在 app 层直接响应，搜索框聚焦时屏蔽
+- `?` 键打开帮助视图：切换到 StateHelp 窗口状态（非覆盖层），esc/?/q 返回主视图
 - 删除功能在右栏面板开放，左栏选中属性时也可按 d 进入；删除仅能对属性（完整 key）操作
 - 删除需二次确认：按 `d` 进入 detailConfirmDelete 状态，再按 `d`/`y` 确认，其他键取消
 - DB 不暴露 vault：删除 `Vault()`/`Header()` 方法，外部禁止直接调用 vault
@@ -101,6 +101,16 @@ internal/
 - 复制成功显示"已复制到剪贴板"提示（copySuccessStyle），1.5 秒后由 copyClearMsg 自动清除
 - copyClearMsg 由 entrydetail 产生，mainview 层转发，不跳过子组件路由
 - 切换条目/属性/状态时（SetEntryPath/SelectAttr/StartEdit/StartNew/SetAttrList/SetDetailMode）自动清除复制提示
+
+## 组件架构约定
+
+- 所有子组件统一实现 `tea.Model` 接口：`Update() (tea.Model, tea.Cmd)` + `View() tea.View`
+- App 层使用 `page tea.Model` 统一路由，不再为每个页面持有独立字段
+- `AppState` 集中管理 DB/DBPath/Dirty，子组件通过构造函数参数获取所需数据
+- 子组件不再暴露 SetSize/SetFocused 方法，改用 `resizeMsg`/`setFocusMsg` 消息驱动
+- `updateLeft`/`updateLeftCmd`/`updateRight`/`updateRightCmd` 辅助函数处理 tea.Model → 具体类型的断言
+- Help 从覆盖层模式改为独立窗口状态（StateHelp），不再持有 active 标志
+- `propagatePanelSize()`/`propagatePanelFocus()` 在 mainview 中集中分发 resize/focus 消息给子面板
 
 ## 搜索过滤机制
 

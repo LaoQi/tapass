@@ -59,14 +59,10 @@ func (m WelcomeModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
+func (m WelcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		return m, nil
 	case initialPathMsg:
 		if msg.Path != "" {
 			m.initialPath = msg.Path
@@ -75,7 +71,7 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 			m.passwordInput.Focus()
 		}
 		return m, nil
-	case setWelcomeSizeMsg:
+	case resizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
@@ -214,7 +210,7 @@ var tapassASCII = lipgloss.NewStyle().
    ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝
 `)
 
-func (m WelcomeModel) View() string {
+func (m WelcomeModel) View() tea.View {
 	width := m.width
 	if width < 1 {
 		width = 40
@@ -299,5 +295,5 @@ func (m WelcomeModel) View() string {
 	}
 	statusView := statusBarStyle.Width(width).Render(hint)
 
-	return lipgloss.JoinVertical(lipgloss.Top, titleView, centerView, statusView)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Top, titleView, centerView, statusView))
 }

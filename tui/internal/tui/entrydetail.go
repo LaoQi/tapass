@@ -195,7 +195,7 @@ func (m EntryDetailModel) updateTOTP() EntryDetailModel {
 	return m
 }
 
-func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
+func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
@@ -279,13 +279,16 @@ func (m EntryDetailModel) Update(msg tea.Msg) (EntryDetailModel, tea.Cmd) {
 			m = m.updateTOTP()
 		}
 		return m, nil
-	case tea.WindowSizeMsg:
+	case resizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.state == detailEditKV {
 			m = m.resizeEditor()
 		}
-
+		return m, nil
+	case setFocusMsg:
+		m.focused = msg.Focused
+		return m, nil
 	case tickMsg:
 		if m.selectedAttr == "TOTP" && m.selectedEntry != nil {
 			m = m.updateTOTP()
@@ -462,7 +465,7 @@ func (m EntryDetailModel) resizeEditor() EntryDetailModel {
 	return m
 }
 
-func (m EntryDetailModel) View() string {
+func (m EntryDetailModel) View() tea.View {
 	width := m.width
 	if width < 1 {
 		width = 30
@@ -475,22 +478,22 @@ func (m EntryDetailModel) View() string {
 	var b strings.Builder
 
 	if m.state == detailEditKV {
-		return m.renderEditKVView(&b, width, height)
+		return tea.NewView(m.renderEditKVView(&b, width, height))
 	}
 
 	if m.state == detailConfirmDelete {
-		return m.renderConfirmDeleteView(&b, width, height)
+		return tea.NewView(m.renderConfirmDeleteView(&b, width, height))
 	}
 
 	if m.mode == detailModeAttrList {
-		return m.renderAttrListView(&b, width, height)
+		return tea.NewView(m.renderAttrListView(&b, width, height))
 	}
 
 	if m.selectedAttr == "" || m.selectedEntry == nil {
 		b.WriteString(detailTitleStyle.Width(width - 4).Render("Detail"))
 		b.WriteString("\n\n")
 		b.WriteString(menuStyle.Render("Select an attribute"))
-		return m.wrapBorder(b.String(), width, height)
+		return tea.NewView(m.wrapBorder(b.String(), width, height))
 	}
 
 	b.WriteString(detailTitleStyle.Width(width - 4).Render(m.selectedAttr))
@@ -511,7 +514,7 @@ func (m EntryDetailModel) View() string {
 		b.WriteString(copySuccessStyle.Render("已复制到剪贴板"))
 	}
 
-	return m.wrapBorder(b.String(), width, height)
+	return tea.NewView(m.wrapBorder(b.String(), width, height))
 }
 
 func (m EntryDetailModel) renderTOTPView(b *strings.Builder, width int) {
@@ -649,16 +652,4 @@ func (m EntryDetailModel) wrapBorder(content string, width, height int) string {
 	return style.Width(width - 2).Height(height - 2).Render(content)
 }
 
-func (m EntryDetailModel) SetSize(w, h int) EntryDetailModel {
-	m.width = w
-	m.height = h
-	if m.state == detailEditKV {
-		m = m.resizeEditor()
-	}
-	return m
-}
 
-func (m EntryDetailModel) SetFocused(f bool) EntryDetailModel {
-	m.focused = f
-	return m
-}

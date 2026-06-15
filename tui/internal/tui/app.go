@@ -10,37 +10,40 @@ type WindowState int
 const (
 	StateWelcome WindowState = iota
 	StateMainView
+	StateHelp
 	StateDBConfig
 )
 
+type AppState struct {
+	DB     *model.DB
+	DBPath string
+	Dirty  bool
+}
+
 type AppModel struct {
 	state  WindowState
-	db     *model.DB
-	dbPath string
-
-	welcome  WelcomeModel
-	mainview MainViewModel
-	dbconfig DBConfigModel
-	help     HelpViewModel
-	width    int
-	height   int
-	err      error
+	app    AppState
+	page   tea.Model
+	width  int
+	height int
+	err    error
 }
 
 func NewApp(dbPath string) AppModel {
 	w := NewWelcomeModel()
+	page := w
 	if dbPath != "" {
-		w, _ = w.Update(initialPathMsg{Path: dbPath})
+		np, _ := w.Update(initialPathMsg{Path: dbPath})
+		page = np.(WelcomeModel)
 	}
 	return AppModel{
-		state:   StateWelcome,
-		welcome: w,
-		help:    NewHelpViewModel(),
+		state: StateWelcome,
+		page:  page,
 	}
 }
 
 func (m AppModel) Init() tea.Cmd {
-	return m.welcome.Init()
+	return m.page.Init()
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -51,94 +54,107 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m = m.propagateSize()
-		switch m.state {
-		case StateWelcome:
-			m.welcome, cmd = m.welcome.Update(msg)
-		case StateMainView:
-			m.mainview, cmd = m.mainview.Update(msg)
-		case StateDBConfig:
-			m.dbconfig, cmd = m.dbconfig.Update(msg)
-		}
-		return m, cmd
+		return m, nil
 
 	case tea.KeyPressMsg:
-		if m.help.Active() {
+		if m.state == StateHelp {
 			switch msg.String() {
 			case "esc", "?", "q":
-				m.help, _ = m.help.Update(helpCloseMsg{})
+				m = m.switchToMainView()
 			}
 			return m, nil
 		}
 
-		if msg.String() == "?" && m.state == StateMainView && m.mainview.MainState() == StateBrowse && m.mainview.focus != focusSearch && m.mainview.rightPanel.State() == detailView {
-			m.help, _ = m.help.Update(helpToggleMsg{})
-			return m, nil
+		if msg.String() == "?" && m.state == StateMainView {
+			mv := m.page.(MainViewModel)
+			if mv.MainState() == StateBrowse && mv.focus != focusSearch && mv.rightPanel.State() == detailView {
+				m.page = NewHelpViewModel()
+				m.state = StateHelp
+				m = m.propagateSize()
+				return m, nil
+			}
 		}
 
-		if msg.String() == "c" && m.state == StateMainView && m.mainview.MainState() == StateBrowse && m.mainview.focus != focusSearch && m.mainview.rightPanel.State() != detailEditKV {
-			return m, func() tea.Msg { return OpenDBConfigMsg{} }
+		if msg.String() == "c" && m.state == StateMainView {
+			mv := m.page.(MainViewModel)
+			if mv.MainState() == StateBrowse && mv.focus != focusSearch && mv.rightPanel.State() != detailEditKV {
+				return m, func() tea.Msg { return OpenDBConfigMsg{} }
+			}
 		}
 
 	case OpenVaultMsg:
-		m.db = msg.DB
-		m.dbPath = msg.Path
+		m.app.DB = msg.DB
+		m.app.DBPath = msg.Path
 		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.db, m.dbPath, "", m.width, m.height)
+		m.page = NewMainViewModel(m.app.DB, m.app.DBPath, "", m.width, m.height)
 		m = m.propagateSize()
 		return m, nil
 
 	case CreateVaultMsg:
-		m.db = msg.DB
-		m.dbPath = msg.Path
+		m.app.DB = msg.DB
+		m.app.DBPath = msg.Path
 		m.state = StateMainView
-		m.mainview = NewMainViewModel(m.db, m.dbPath, "", m.width, m.height)
+		m.page = NewMainViewModel(m.app.DB, m.app.DBPath, "", m.width, m.height)
 		m = m.propagateSize()
 		return m, nil
 
 	case BackToMainMsg:
-		m.state = StateMainView
-		m.mainview, _ = m.mainview.Update(refreshMsg{})
-		m = m.propagateSize()
+		m = m.switchToMainView()
+		if mv, ok := m.page.(MainViewModel); ok {
+			m.page = updateMainView(mv, refreshMsg{})
+		}
 		return m, nil
 
 	case OpenDBConfigMsg:
 		m.state = StateDBConfig
-		m.dbconfig = NewDBConfigModel(m.db, m.dbPath)
+		m.page = NewDBConfigModel(m.app.DB, m.app.DBPath)
 		m = m.propagateSize()
 		return m, nil
 
 	case AttrChangedMsg:
-		m.mainview, _ = m.mainview.Update(mainViewModelEventMsg{Event: model.Event{Type: model.EventAttrSet, Key: msg.Key}})
-		m.mainview, _ = m.mainview.Update(dirtyMsg{Dirty: true})
+		m.app.Dirty = true
+		if mv, ok := m.page.(MainViewModel); ok {
+			mv = updateMainView(mv, mainViewModelEventMsg{Event: model.Event{Type: model.EventAttrSet, Key: msg.Key}})
+			mv = updateMainView(mv, dirtyMsg{Dirty: true})
+			m.page = mv
+		}
 		return m, nil
 
 	case PasswordChangedMsg:
-		m.state = StateMainView
-		m.mainview, _ = m.mainview.Update(dirtyMsg{Dirty: true})
-		m = m.propagateSize()
+		m.app.Dirty = true
+		m = m.switchToMainView()
+		if mv, ok := m.page.(MainViewModel); ok {
+			mv = updateMainView(mv, dirtyMsg{Dirty: true})
+			m.page = mv
+		}
 		return m, nil
 
 	case SaveVaultMsg:
-		if m.db == nil {
+		if m.app.DB == nil {
 			return m, nil
 		}
-		if err := m.db.Save(); err != nil {
+		if err := m.app.DB.Save(); err != nil {
 			return m, func() tea.Msg { return ErrorMsg{Err: err} }
 		}
 		return m, func() tea.Msg { return VaultSavedMsg{QuitAfter: false} }
 
 	case SaveAndQuitMsg:
-		if m.db == nil {
+		if m.app.DB == nil {
 			return m, tea.Quit
 		}
-		if err := m.db.Save(); err != nil {
-			m.mainview, _ = m.mainview.Update(cancelQuitMsg{})
+		if err := m.app.DB.Save(); err != nil {
+			if mv, ok := m.page.(MainViewModel); ok {
+				m.page = updateMainView(mv, cancelQuitMsg{})
+			}
 			return m, func() tea.Msg { return ErrorMsg{Err: err} }
 		}
 		return m, func() tea.Msg { return VaultSavedMsg{QuitAfter: true} }
 
 	case VaultSavedMsg:
-		m.mainview, _ = m.mainview.Update(dirtyMsg{Dirty: false})
+		m.app.Dirty = false
+		if mv, ok := m.page.(MainViewModel); ok {
+			m.page = updateMainView(mv, dirtyMsg{Dirty: false})
+		}
 		if msg.QuitAfter {
 			return m, tea.Quit
 		}
@@ -149,50 +165,36 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	switch m.state {
-	case StateWelcome:
-		m.welcome, cmd = m.welcome.Update(msg)
-	case StateMainView:
-		m.mainview, cmd = m.mainview.Update(msg)
-	case StateDBConfig:
-		m.dbconfig, cmd = m.dbconfig.Update(msg)
-	}
-
+	m.page, cmd = m.page.Update(msg)
 	return m, cmd
 }
 
 func (m AppModel) View() tea.View {
-	var content string
-	switch m.state {
-	case StateWelcome:
-		content = m.welcome.View()
-	case StateMainView:
-		content = m.mainview.View()
-	case StateDBConfig:
-		content = m.dbconfig.View()
-	}
-
-	if m.help.Active() && m.state == StateMainView {
-		content = m.help.View()
-	}
-
-	v := tea.NewView(content)
+	v := m.page.View()
 	v.AltScreen = true
 	return v
 }
 
 func (m AppModel) propagateSize() AppModel {
-	w := m.width
-	h := m.height
-	if w < 1 || h < 1 {
+	if m.width < 1 || m.height < 1 {
 		return m
 	}
-
-	m.welcome, _ = m.welcome.Update(setWelcomeSizeMsg{Width: w, Height: h})
-	m.mainview = m.mainview.SetSize(w, h)
-	m.dbconfig = m.dbconfig.SetSize(w, h)
-	m.help, _ = m.help.Update(setHelpSizeMsg{Width: w, Height: h})
+	m.page, _ = m.page.Update(resizeMsg{Width: m.width, Height: m.height})
 	return m
 }
 
+func (m AppModel) switchToMainView() AppModel {
+	m.state = StateMainView
+	m.page = NewMainViewModel(m.app.DB, m.app.DBPath, "", m.width, m.height)
+	if m.app.Dirty {
+		mv := m.page.(MainViewModel)
+		m.page = updateMainView(mv, dirtyMsg{Dirty: true})
+	}
+	m = m.propagateSize()
+	return m
+}
 
+func updateMainView(mv MainViewModel, msg tea.Msg) MainViewModel {
+	np, _ := mv.Update(msg)
+	return np.(MainViewModel)
+}
