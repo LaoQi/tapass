@@ -1,9 +1,6 @@
 package tui
 
 import (
-	"crypto/hmac"
-	"encoding/base32"
-	"encoding/binary"
 	"fmt"
 	"strings"
 	"time"
@@ -11,9 +8,7 @@ import (
 	"charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
-	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/mattn/go-runewidth"
 	"github.com/LaoQi/tapass/tui/internal/model"
 )
 
@@ -44,30 +39,25 @@ type AttrInfo struct {
 	Timestamp uint64
 }
 
-
-
 type EntryDetailModel struct {
-	entryPath    string
-	db           *model.DB
-	state        detailState
-	editMode     editMode
-	mode         detailMode
-	attrList     []AttrInfo
-	selectedAttr string
-	selectedEntry *model.Entry
-	keyInput     textinput.Model
-	valueArea    textarea.Model
-	editKey      string
-	totpCode     string
-	totpRemaining int
-	totpDigits   int
-	totpPeriod   int
-	err          error
+	entryPath       string
+	db              *model.DB
+	state           detailState
+	editMode        editMode
+	mode            detailMode
+	attrList        []AttrInfo
+	selectedAttr    string
+	selectedEntry   *model.Entry
+	keyInput        textinput.Model
+	valueArea       textarea.Model
+	editKey         string
+	err             error
 	pendingDeleteKey string
-	copySuccess      bool
-	width            int
-	height           int
-	focused          bool
+	copySuccess     bool
+	width           int
+	height          int
+	focused         bool
+	totpView        *TOTPDetailView
 }
 
 func NewEntryDetailModel(entryPath string, db *model.DB) EntryDetailModel {
@@ -97,23 +87,6 @@ func (m EntryDetailModel) EntryPath() string {
 	return m.entryPath
 }
 
-func (m EntryDetailModel) refresh() EntryDetailModel {
-	if m.selectedAttr == "" || m.db == nil {
-		m.selectedEntry = nil
-		return m
-	}
-	fullKey := m.entryPath + "/" + m.selectedAttr
-	if e, ok := m.db.Get(fullKey); ok {
-		m.selectedEntry = &e
-		if m.selectedAttr == "TOTP" {
-			m = m.updateTOTP()
-		}
-	} else {
-		m.selectedEntry = nil
-	}
-	return m
-}
-
 func (m EntryDetailModel) Init() tea.Cmd {
 	if m.selectedAttr == "TOTP" && m.selectedEntry != nil {
 		return tea.Tick(time.Second, func(t time.Time) tea.Msg {
@@ -131,67 +104,47 @@ func (m EntryDetailModel) HasSelectedEntry() bool {
 	return m.selectedEntry != nil
 }
 
-type totpParams struct {
-	secret    []byte
-	digits    int
-	period    int
-	algorithm string
-	steam     bool
+func (m EntryDetailModel) IsTOTP() bool {
+	return m.selectedAttr == "TOTP"
+}
+
+func (m EntryDetailModel) TOTPCode() string {
+	if m.totpView != nil {
+		return m.totpView.Code()
+	}
+	return ""
+}
+
+func (m EntryDetailModel) newTOTPView(value string) *TOTPDetailView {
+	v := &TOTPDetailView{}
+	v.SetValue(value)
+	v.SetSize(m.width, m.height)
+	v.ComputeCode()
+	return v
+}
+
+func (m EntryDetailModel) refresh() EntryDetailModel {
+	if m.selectedAttr == "" || m.db == nil {
+		m.selectedEntry = nil
+		return m
+	}
+	fullKey := m.entryPath + "/" + m.selectedAttr
+	if e, ok := m.db.Get(fullKey); ok {
+		m.selectedEntry = &e
+		if m.selectedAttr == "TOTP" {
+			m.totpView = m.newTOTPView(string(e.Value))
+		}
+	} else {
+		m.selectedEntry = nil
+	}
+	return m
 }
 
 func (m EntryDetailModel) updateTOTP() EntryDetailModel {
 	if m.selectedEntry == nil {
 		return m
 	}
-
-	raw := string(m.selectedEntry.Value)
-	params, err := parseOtpAuthURI(raw)
-	if err != nil {
-		secret := strings.ToUpper(strings.ReplaceAll(raw, " ", ""))
-		secret = strings.TrimRight(secret, "=")
-		key, decErr := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
-		if decErr != nil {
-			m.totpCode = "invalid secret"
-			m.totpRemaining = 0
-			return m
-		}
-		params = totpParams{secret: key, digits: 6, period: 30, algorithm: "SHA1"}
-	}
-
-	m.totpDigits = params.digits
-	m.totpPeriod = params.period
-
-	ts := time.Now().Unix() / int64(params.period)
-	counter := make([]byte, 8)
-	binary.BigEndian.PutUint64(counter, uint64(ts))
-
-	h := hmac.New(newHash(params.algorithm), params.secret)
-	h.Write(counter)
-	hash := h.Sum(nil)
-
-	offset := hash[len(hash)-1] & 0x0F
-	fullCode := binary.BigEndian.Uint32(hash[offset:offset+4]) & 0x7FFFFFFF
-
-	if params.steam {
-		const steamChars = "23456789BCDFGHJKMNPQRTVWXY"
-		code := fullCode
-		var result strings.Builder
-		for i := 0; i < 5; i++ {
-			result.WriteByte(steamChars[code%uint32(len(steamChars))])
-			code /= uint32(len(steamChars))
-		}
-		m.totpCode = result.String()
-	} else {
-		divisor := uint32(1)
-		for i := 0; i < params.digits; i++ {
-			divisor *= 10
-		}
-		code := fullCode % divisor
-		fmtStr := fmt.Sprintf("%%0%dd", params.digits)
-		m.totpCode = fmt.Sprintf(fmtStr, code)
-	}
-
-	m.totpRemaining = int(params.period - int(time.Now().Unix()%int64(params.period)))
+	m.totpView = m.newTOTPView(string(m.selectedEntry.Value))
 	return m
 }
 
@@ -208,6 +161,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.copySuccess = false
 			m.mode = detailModeAttrList
 			m.attrList = nil
+			m.totpView = nil
 			return m, nil
 		}
 		if msg.EntryPath != "" {
@@ -219,9 +173,9 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fullKey := msg.EntryPath + "/" + msg.SelectedAttr
 				if e, ok := m.db.Get(fullKey); ok {
 					m.selectedEntry = &e
-				if msg.SelectedAttr == "TOTP" {
-					m = m.updateTOTP()
-				}
+					if msg.SelectedAttr == "TOTP" {
+						m.totpView = m.newTOTPView(string(e.Value))
+					}
 				}
 			}
 		} else {
@@ -285,6 +239,9 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == detailEditKV {
 			m = m.resizeEditor()
 		}
+		if m.totpView != nil {
+			m.totpView.SetSize(m.width, m.height)
+		}
 		return m, nil
 	case setFocusMsg:
 		m.focused = msg.Focused
@@ -324,8 +281,8 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y":
 				if m.selectedEntry != nil {
 					var copyText string
-					if m.selectedAttr == "TOTP" {
-						copyText = m.totpCode
+					if m.selectedAttr == "TOTP" && m.totpView != nil {
+						copyText = m.totpView.Code()
 					} else {
 						copyText = string(m.selectedEntry.Value)
 					}
@@ -475,181 +432,62 @@ func (m EntryDetailModel) View() tea.View {
 		height = 20
 	}
 
-	var b strings.Builder
+	var content string
 
-	if m.state == detailEditKV {
-		return tea.NewView(m.renderEditKVView(&b, width, height))
-	}
+	switch {
+	case m.state == detailEditKV:
+		v := &EditKVView{}
+		v.SetEditMode(m.editMode)
+		v.SetKeyInput(m.keyInput)
+		v.SetValueArea(m.valueArea)
+		v.SetSelectedAttr(m.selectedAttr)
+		if m.selectedEntry != nil {
+			v.SetTimestamp(m.selectedEntry.Timestamp)
+		}
+		v.SetError(m.err)
+		v.SetSize(width, height)
+		content = v.View()
 
-	if m.state == detailConfirmDelete {
-		return tea.NewView(m.renderConfirmDeleteView(&b, width, height))
-	}
-
-	if m.mode == detailModeAttrList {
-		return tea.NewView(m.renderAttrListView(&b, width, height))
-	}
-
-	if m.selectedAttr == "" || m.selectedEntry == nil {
-		b.WriteString(detailTitleStyle.Width(width - 4).Render("Detail"))
+	case m.state == detailConfirmDelete:
+		var b strings.Builder
+		b.WriteString(errorStyle.Render("Confirm delete?"))
 		b.WriteString("\n\n")
-		b.WriteString(menuStyle.Render("Select an attribute"))
-		return tea.NewView(m.wrapBorder(b.String(), width, height))
+		b.WriteString(menuStyle.Render("[d/y] confirm  [any] cancel"))
+		content = b.String()
+
+	case m.mode == detailModeAttrList:
+		v := &AttrListView{}
+		v.SetAttrs(m.attrList)
+		v.SetSize(width, height)
+		content = v.View()
+
+	case m.selectedAttr == "" || m.selectedEntry == nil:
+		v := &EmptyDetailView{}
+		v.SetSize(width, height)
+		content = v.View()
+
+	case m.selectedAttr == "TOTP":
+		m.totpView.SetTimestamp(m.selectedEntry.Timestamp)
+		m.totpView.SetCopySuccess(m.copySuccess)
+		m.totpView.SetSize(width, height)
+		content = m.totpView.View()
+
+	default:
+		v := &TextDetailView{}
+		v.SetValue(string(m.selectedEntry.Value))
+		v.SetTimestamp(m.selectedEntry.Timestamp)
+		v.SetCopySuccess(m.copySuccess)
+		v.SetSize(width, height)
+		content = v.View()
 	}
 
-	b.WriteString(detailTitleStyle.Width(width - 4).Render(m.selectedAttr))
-	b.WriteString("\n\n")
-
-	ts := time.UnixMilli(int64(m.selectedEntry.Timestamp)).Format("2006-01-02 15:04:05")
-	b.WriteString(timestampStyle.Render(ts))
-	b.WriteString("\n\n")
-
-	if m.selectedAttr == "TOTP" {
-		m.renderTOTPView(&b, width)
-	} else {
-		m.renderTextView(&b, width, height)
+	if m.selectedAttr != "" && m.selectedAttr != "TOTP" && m.selectedEntry != nil && m.state == detailView && m.copySuccess {
+		content += "\n" + copySuccessStyle.Render("已复制到剪贴板")
 	}
 
-	if m.copySuccess {
-		b.WriteString("\n")
-		b.WriteString(copySuccessStyle.Render("已复制到剪贴板"))
+	if m.selectedAttr == "TOTP" && m.selectedEntry != nil && m.state == detailView && m.copySuccess {
+		content += "\n" + copySuccessStyle.Render("已复制到剪贴板")
 	}
 
-	return tea.NewView(m.wrapBorder(b.String(), width, height))
+	return tea.NewView(wrapBorder(content, m.focused, width, height))
 }
-
-func (m EntryDetailModel) renderTOTPView(b *strings.Builder, width int) {
-	codeStyle := totpCodeStyle.Copy().Width(width - 4).Align(lipgloss.Center)
-	b.WriteString(codeStyle.Render(m.totpCode))
-	b.WriteString("\n\n")
-
-	barWidth := width - 8
-	if barWidth < 10 {
-		barWidth = 10
-	}
-	period := m.totpPeriod
-	if period < 1 {
-		period = 30
-	}
-	filled := (m.totpRemaining * barWidth) / period
-	empty := barWidth - filled
-
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
-	b.WriteString(lipgloss.NewStyle().Width(width - 4).Align(lipgloss.Center).Render(bar))
-	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Width(width - 4).Align(lipgloss.Center).Render(fmt.Sprintf("%ds", m.totpRemaining)))
-	b.WriteString("\n\n")
-
-	maxWidth := width - 4
-	if maxWidth < 10 {
-		maxWidth = 10
-	}
-	for _, line := range wrapLine(string(m.selectedEntry.Value), maxWidth) {
-		b.WriteString(menuStyle.Render(line))
-		b.WriteString("\n")
-	}
-}
-
-func (m EntryDetailModel) renderTextView(b *strings.Builder, width, height int) {
-	value := string(m.selectedEntry.Value)
-	maxWidth := width - 4
-	if maxWidth < 10 {
-		maxWidth = 10
-	}
-
-	var wrapped []string
-	for _, line := range strings.Split(value, "\n") {
-		wrapped = append(wrapped, wrapLine(line, maxWidth)...)
-	}
-
-	maxLines := height - 8
-	if maxLines < 1 {
-		maxLines = 1
-	}
-
-	for i, line := range wrapped {
-		if i >= maxLines {
-			b.WriteString(menuStyle.Render(fmt.Sprintf("... %d more lines", len(wrapped)-maxLines)))
-			break
-		}
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-}
-
-func (m EntryDetailModel) renderAttrListView(b *strings.Builder, width, height int) string {
-	b.WriteString(detailTitleStyle.Width(width - 4).Render("Attributes"))
-	b.WriteString("\n\n")
-
-	if len(m.attrList) == 0 {
-		b.WriteString(menuStyle.Render("  (no attributes)"))
-		return m.wrapBorder(b.String(), width, height)
-	}
-
-	maxNameWidth := width - 16
-	if maxNameWidth < 6 {
-		maxNameWidth = 6
-	}
-
-	for _, attr := range m.attrList {
-		name := attr.Name
-		if runewidth.StringWidth(name) > maxNameWidth {
-			name = truncateString(name, maxNameWidth-1) + "…"
-		}
-		ts := time.UnixMilli(int64(attr.Timestamp)).Format("2006-01-02 15:04")
-		b.WriteString(panelAttrStyle.Render(name))
-		b.WriteString("  ")
-		b.WriteString(timestampStyle.Render(ts))
-		b.WriteString("\n")
-	}
-
-	return m.wrapBorder(b.String(), width, height)
-}
-
-
-func (m EntryDetailModel) renderEditKVView(b *strings.Builder, width, height int) string {
-	editW := width - 6
-	if editW < 10 {
-		editW = 10
-	}
-
-	if m.editMode == editModeNew {
-		keyStyle := inputStyle.Width(editW)
-		if m.keyInput.Focused() {
-			keyStyle = keyStyle.BorderForeground(lipgloss.Color("#7C3AED"))
-		}
-		b.WriteString(keyStyle.Render(m.keyInput.View()))
-		b.WriteString(detailTitleStyle.Width(width - 4).Render(""))
-	} else {
-		b.WriteString(detailTitleStyle.Width(width - 4).Render(m.selectedAttr))
-		b.WriteString("\n\n")
-		ts := time.UnixMilli(int64(m.selectedEntry.Timestamp)).Format("2006-01-02 15:04:05")
-		b.WriteString(timestampStyle.Render(ts))
-	}
-
-	b.WriteString("\n\n")
-	b.WriteString(m.valueArea.View())
-
-	if m.err != nil {
-		b.WriteString("\n")
-		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
-	}
-
-	return m.wrapBorder(b.String(), width, height)
-}
-
-func (m EntryDetailModel) renderConfirmDeleteView(b *strings.Builder, width, height int) string {
-	b.WriteString(errorStyle.Render("Confirm delete?"))
-	b.WriteString("\n\n")
-	b.WriteString(menuStyle.Render("[d/y] confirm  [any] cancel"))
-	return m.wrapBorder(b.String(), width, height)
-}
-
-func (m EntryDetailModel) wrapBorder(content string, width, height int) string {
-	style := blurBorderStyle
-	if m.focused {
-		style = focusBorderStyle
-	}
-	return style.Width(width - 2).Height(height - 2).Render(content)
-}
-
-

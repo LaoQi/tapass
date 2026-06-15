@@ -52,6 +52,7 @@ type DB struct {
 	vault     *vault.Vault
 	listeners []Listener
 	dbPath    string
+	dirty     bool
 }
 
 func newDB(v *vault.Vault, dbPath string) *DB {
@@ -75,18 +76,19 @@ func CreateDB(path, password string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := atomicWriteFile(path, data); err != nil {
-		return nil, err
-	}
 	v, err := vault.Open(data, password)
 	if err != nil {
 		return nil, err
 	}
-	return newDB(v, path), nil
+	return &DB{vault: v, dbPath: path, dirty: true}, nil
 }
 
 func (db *DB) Path() string {
 	return db.dbPath
+}
+
+func (db *DB) Dirty() bool {
+	return db.dirty
 }
 
 func (db *DB) Save() error {
@@ -94,7 +96,11 @@ func (db *DB) Save() error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(db.dbPath, data)
+	if err := atomicWriteFile(db.dbPath, data); err != nil {
+		return err
+	}
+	db.dirty = false
+	return nil
 }
 
 func (db *DB) Query(prefix string) []QueryResult {
@@ -138,11 +144,13 @@ func (db *DB) Get(key string) (Entry, bool) {
 
 func (db *DB) Set(key string, value []byte) []tea.Cmd {
 	db.vault.Set(key, value)
+	db.dirty = true
 	return db.emit(Event{Type: EventAttrSet, Key: key})
 }
 
 func (db *DB) Delete(key string) []tea.Cmd {
 	db.vault.Delete(key)
+	db.dirty = true
 	return db.emit(Event{Type: EventAttrDeleted, Key: key})
 }
 
@@ -151,6 +159,7 @@ func (db *DB) ChangePassword(old, new string) ([]tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.dirty = true
 	return db.emit(Event{Type: EventVaultChanged}), nil
 }
 
@@ -169,6 +178,7 @@ func (db *DB) SetConfig(c Config) []tea.Cmd {
 		MemoryCost:  c.Argon2.MemoryCost,
 		Parallelism: c.Argon2.Parallelism,
 	}
+	db.dirty = true
 	return db.emit(Event{Type: EventConfigChanged})
 }
 

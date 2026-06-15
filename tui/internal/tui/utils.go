@@ -1,17 +1,9 @@
 package tui
 
 import (
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
-	"encoding/base32"
-	"fmt"
-	"hash"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
@@ -162,61 +154,4 @@ func commonPrefix(strs []string) string {
 		}
 	}
 	return p
-}
-
-func parseOtpAuthURI(raw string) (totpParams, error) {
-	p := totpParams{digits: 6, period: 30, algorithm: "SHA1"}
-
-	if !strings.HasPrefix(raw, "otpauth://totp/") {
-		return p, fmt.Errorf("not an otpauth://totp/ URI")
-	}
-
-	u, err := url.Parse(raw)
-	if err != nil {
-		return p, fmt.Errorf("parse URI: %w", err)
-	}
-
-	q := u.Query()
-
-	secretStr := q.Get("secret")
-	if secretStr == "" {
-		return p, fmt.Errorf("missing secret parameter")
-	}
-	secretUpper := strings.ToUpper(strings.ReplaceAll(secretStr, " ", ""))
-	p.secret, err = base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.TrimRight(secretUpper, "="))
-	if err != nil {
-		return p, fmt.Errorf("decode secret: %w", err)
-	}
-
-	if d := q.Get("digits"); d != "" {
-		if strings.EqualFold(d, "S") {
-			p.steam = true
-			p.digits = 5
-		} else if v, err := strconv.Atoi(d); err == nil && v > 0 {
-			p.digits = v
-		}
-	}
-
-	if pr := q.Get("period"); pr != "" {
-		if v, err := strconv.Atoi(pr); err == nil && v > 0 {
-			p.period = v
-		}
-	}
-
-	if alg := q.Get("algorithm"); alg != "" {
-		p.algorithm = strings.ToUpper(alg)
-	}
-
-	return p, nil
-}
-
-func newHash(algorithm string) func() hash.Hash {
-	switch algorithm {
-	case "SHA256":
-		return sha256.New
-	case "SHA512":
-		return sha512.New
-	default:
-		return sha1.New
-	}
 }

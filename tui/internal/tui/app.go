@@ -17,7 +17,6 @@ const (
 type AppState struct {
 	DB     *model.DB
 	DBPath string
-	Dirty  bool
 }
 
 type AppModel struct {
@@ -112,19 +111,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case AttrChangedMsg:
-		m.app.Dirty = true
 		if mv, ok := m.page.(MainViewModel); ok {
 			mv = updateMainView(mv, mainViewModelEventMsg{Event: model.Event{Type: model.EventAttrSet, Key: msg.Key}})
-			mv = updateMainView(mv, dirtyMsg{Dirty: true})
+			mv = updateMainView(mv, dirtyMsg{Dirty: m.app.DB.Dirty()})
 			m.page = mv
 		}
 		return m, nil
 
 	case PasswordChangedMsg:
-		m.app.Dirty = true
 		m = m.switchToMainView()
 		if mv, ok := m.page.(MainViewModel); ok {
-			mv = updateMainView(mv, dirtyMsg{Dirty: true})
+			mv = updateMainView(mv, dirtyMsg{Dirty: m.app.DB.Dirty()})
 			m.page = mv
 		}
 		return m, nil
@@ -151,9 +148,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return VaultSavedMsg{QuitAfter: true} }
 
 	case VaultSavedMsg:
-		m.app.Dirty = false
 		if mv, ok := m.page.(MainViewModel); ok {
-			m.page = updateMainView(mv, dirtyMsg{Dirty: false})
+			m.page = updateMainView(mv, dirtyMsg{Dirty: m.app.DB.Dirty()})
 		}
 		if msg.QuitAfter {
 			return m, tea.Quit
@@ -186,7 +182,7 @@ func (m AppModel) propagateSize() AppModel {
 func (m AppModel) switchToMainView() AppModel {
 	m.state = StateMainView
 	m.page = NewMainViewModel(m.app.DB, m.app.DBPath, "", m.width, m.height)
-	if m.app.Dirty {
+	if m.app.DB != nil && m.app.DB.Dirty() {
 		mv := m.page.(MainViewModel)
 		m.page = updateMainView(mv, dirtyMsg{Dirty: true})
 	}

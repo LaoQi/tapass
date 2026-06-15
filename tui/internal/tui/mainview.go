@@ -153,7 +153,7 @@ func (m MainViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.rightPanel, cmd = updateRightCmd(m.rightPanel, msg)
-		if m.rightPanel.selectedAttr == "TOTP" && m.rightPanel.HasSelectedEntry() {
+		if m.rightPanel.IsTOTP() && m.rightPanel.HasSelectedEntry() {
 			return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 				return tickMsg{}
 			})
@@ -174,15 +174,15 @@ func (m MainViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.rightPanel.selectedAttr == "TOTP" && m.rightPanel.HasSelectedEntry() && !m.totpActive {
+	if m.rightPanel.IsTOTP() && m.rightPanel.HasSelectedEntry() && !m.totpActive {
 		m.totpActive = true
-		m.rightPanel = m.rightPanel.updateTOTP()
+		m.rightPanel = updateRight(m.rightPanel, refreshTOTPMsg{})
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg{}
 		})
 	}
 
-	if m.rightPanel.selectedAttr != "TOTP" {
+	if !m.rightPanel.IsTOTP() {
 		m.totpActive = false
 	}
 
