@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"charm.land/bubbletea/v2"
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/LaoQi/tapass/tools/vault"
 )
 
 type EventType int

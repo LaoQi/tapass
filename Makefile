@@ -17,8 +17,8 @@ ARCHIVE_VERSION := $(if $(VERSION),$(VERSION),$(if $(COMMIT),$(COMMIT),dev))
 TARGET  := $(if $(GOOS),$(GOOS)-$(GOARCH),$(shell go env GOOS)-$(shell go env GOARCH))
 ARCHIVE := $(DIST_DIR)/tapass-$(ARCHIVE_VERSION)-$(TARGET).zip
 
-LDFLAGS := -X github.com/tapass/tapass-tools/version.Version=$(VERSION) \
-           -X github.com/tapass/tapass-tools/version.Commit=$(COMMIT)
+LDFLAGS := -X github.com/LaoQi/tapass/tools/version.Version=$(VERSION) \
+           -X github.com/LaoQi/tapass/tools/version.Commit=$(COMMIT)
 
 all: build
 

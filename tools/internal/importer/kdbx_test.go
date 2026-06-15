@@ -8,7 +8,7 @@ import (
 
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
 	w "github.com/tobischo/gokeepasslib/v3/wrappers"
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/LaoQi/tapass/tools/vault"
 )
 
 func createTestKDBX(t *testing.T, path, password string) {

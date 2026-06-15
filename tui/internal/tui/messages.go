@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/tapass/tapass-tui/internal/model"
+import "github.com/LaoQi/tapass/tui/internal/model"
 
 type OpenVaultMsg struct {
 	DB   *model.DB

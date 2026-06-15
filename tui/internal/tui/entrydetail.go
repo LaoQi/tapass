@@ -14,7 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 	"github.com/mattn/go-runewidth"
-	"github.com/tapass/tapass-tui/internal/model"
+	"github.com/LaoQi/tapass/tui/internal/model"
 )
 
 type detailState int

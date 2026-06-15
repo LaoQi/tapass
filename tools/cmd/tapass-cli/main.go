@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"golang.org/x/term"
-	"github.com/tapass/tapass-tools/vault"
-	"github.com/tapass/tapass-tools/version"
+	"github.com/LaoQi/tapass/tools/vault"
+	"github.com/LaoQi/tapass/tools/version"
 )
 
 var out io.Writer = os.Stderr
