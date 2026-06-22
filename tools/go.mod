@@ -1,4 +1,4 @@
-module github.com/tapass/tapass-tools
+module github.com/LaoQi/tapass/tools
 
 go 1.25.7
 

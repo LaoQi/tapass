@@ -5,8 +5,8 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/tapass/tapass-tools/internal/importer"
-	"github.com/tapass/tapass-tools/version"
+	"github.com/LaoQi/tapass/tools/internal/importer"
+	"github.com/LaoQi/tapass/tools/version"
 	"golang.org/x/term"
 )
 

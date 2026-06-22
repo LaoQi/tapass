@@ -6,9 +6,10 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/tapass/tapass-tui/internal/model"
+	"github.com/LaoQi/tapass/tui/internal/model"
 )
 
 const iconDisplayWidth = 3
@@ -51,20 +52,6 @@ var (
 				Bold(true)
 )
 
-func truncateString(s string, maxWidth int) string {
-	var b strings.Builder
-	cur := 0
-	for _, r := range s {
-		rw := runewidth.RuneWidth(r)
-		if cur+rw > maxWidth {
-			break
-		}
-		b.WriteRune(r)
-		cur += rw
-	}
-	return b.String()
-}
-
 func NewPanelListModel(db *model.DB, prefix string) PanelListModel {
 	si := textinput.New()
 	si.Prompt = "/"
@@ -75,25 +62,26 @@ func NewPanelListModel(db *model.DB, prefix string) PanelListModel {
 		prefix:      prefix,
 		searchInput: si,
 	}
-	m.deriveTitle()
-	m.doQuery(true)
+	m = m.deriveTitle()
+	m = m.doQuery(true)
 	return m
 }
 
-func (m *PanelListModel) deriveTitle() {
+func (m PanelListModel) deriveTitle() PanelListModel {
 	if m.prefix == "" {
 		m.title = "/"
 	} else {
 		m.title = m.prefix
 	}
+	return m
 }
 
-func (m *PanelListModel) doQuery(resetCursor bool) {
+func (m PanelListModel) doQuery(resetCursor bool) PanelListModel {
 	if m.db == nil {
 		m.rawKeys = nil
 		m.items = nil
 		m.cursor = 0
-		return
+		return m
 	}
 
 	var savedPath string
@@ -102,14 +90,14 @@ func (m *PanelListModel) doQuery(resetCursor bool) {
 	}
 
 	m.rawKeys = m.db.QueryKeys(m.prefix)
-	m.rebuildItems()
+	m = m.rebuildItems()
 
 	if resetCursor || savedPath == "" {
 		m.cursor = 0
 		if m.cursor >= len(m.items) {
 			m.cursor = 0
 		}
-		return
+		return m
 	}
 
 	m.cursor = 0
@@ -119,9 +107,10 @@ func (m *PanelListModel) doQuery(resetCursor bool) {
 			break
 		}
 	}
+	return m
 }
 
-func (m *PanelListModel) buildItems(keys []string) []model.ListItem {
+func (m PanelListModel) buildItems(keys []string) []model.ListItem {
 	depthMap := make(map[string]int)
 	orderMap := make(map[string]int)
 	idx := 0
@@ -165,7 +154,7 @@ func (m *PanelListModel) buildItems(keys []string) []model.ListItem {
 	return items
 }
 
-func (m *PanelListModel) rebuildItems() {
+func (m PanelListModel) rebuildItems() PanelListModel {
 	keys := m.rawKeys
 	query := m.searchInput.Value()
 	if m.searchMode && query != "" {
@@ -182,44 +171,86 @@ func (m *PanelListModel) rebuildItems() {
 	if m.cursor >= len(m.items) {
 		m.cursor = 0
 	}
+	return m
 }
 
-func (m *PanelListModel) ApplySearchFilter(query string) {
-	m.searchInput.SetValue(query)
-	m.rebuildItems()
-}
-
-func (m *PanelListModel) SetDB(db *model.DB) {
-	m.db = db
-	m.doQuery(true)
-}
-
-func (m *PanelListModel) SetPrefix(prefix string) {
-	m.prefix = prefix
-	m.deriveTitle()
-	m.doQuery(true)
-}
-
-func (m *PanelListModel) Prefix() string {
+func (m PanelListModel) Prefix() string {
 	return m.prefix
 }
 
-func (m *PanelListModel) Refresh() {
-	m.doQuery(false)
-}
+func (m PanelListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case searchEnterMsg:
+		m.searchMode = true
+		m.searchInput.SetValue("")
+		m.searchInput.Focus()
+		m = m.rebuildItems()
+		return m, nil
+	case searchExitMsg:
+		m.searchMode = false
+		m.searchInput.Blur()
+		m = m.rebuildItems()
+		return m, nil
+	case searchFocusMsg:
+		m.searchInput.Focus()
+		return m, nil
+	case searchBlurMsg:
+		m.searchInput.Blur()
+		return m, nil
+	case moveUpMsg:
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		return m, nil
+	case moveDownMsg:
+		if m.cursor < len(m.items)-1 {
+			m.cursor++
+		}
+		return m, nil
+	case setPrefixMsg:
+		m.prefix = msg.Prefix
+		m = m.deriveTitle()
+		m = m.doQuery(true)
+		return m, nil
+	case refreshMsg:
+		m = m.doQuery(false)
+		return m, nil
+	case dbEventMsg:
+		switch msg.Event.Type {
+		case model.EventAttrSet, model.EventAttrDeleted:
+			if strings.HasPrefix(msg.Event.Key, m.prefix+"/") {
+				m = m.doQuery(false)
+			}
+		}
+		return m, nil
+	case resizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+	case setFocusMsg:
+		m.focused = msg.Focused
+		return m, nil
+	}
 
-func (m *PanelListModel) HandleEvent(evt model.Event) {
-	switch evt.Type {
-	case model.EventAttrSet, model.EventAttrDeleted:
-		if strings.HasPrefix(evt.Key, m.prefix+"/") {
-			m.doQuery(false)
+	if m.searchMode && m.searchInput.Focused() {
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+			switch keyMsg.String() {
+			case "esc", "enter":
+			default:
+				var cmd tea.Cmd
+				m.searchInput, cmd = m.searchInput.Update(msg)
+				m = m.rebuildItems()
+				return m, cmd
+			}
 		}
 	}
+
+	return m, nil
 }
 
-func (m PanelListModel) Init() {}
+func (m PanelListModel) Init() tea.Cmd { return nil }
 
-func (m PanelListModel) View() string {
+func (m PanelListModel) View() tea.View {
 	width := m.width
 	if width < 1 {
 		width = 20
@@ -264,7 +295,7 @@ func (m PanelListModel) View() string {
 			b.WriteString("\n  (empty)")
 		}
 		content := b.String()
-		return m.wrapBorder(content, width, height)
+		return tea.NewView(m.wrapBorder(content, width, height))
 	}
 
 	displayHeight := height - 4
@@ -315,7 +346,7 @@ func (m PanelListModel) View() string {
 		}
 	}
 
-	return m.wrapBorder(b.String(), width, height)
+	return tea.NewView(m.wrapBorder(b.String(), width, height))
 }
 
 func (m PanelListModel) wrapBorder(content string, width, height int) string {
@@ -335,59 +366,6 @@ func (m PanelListModel) SelectedItem() model.ListItem {
 
 func (m PanelListModel) ItemCount() int {
 	return len(m.items)
-}
-
-func (m *PanelListModel) MoveUp() {
-	if m.cursor > 0 {
-		m.cursor--
-	}
-}
-
-func (m *PanelListModel) MoveDown() {
-	if m.cursor < len(m.items)-1 {
-		m.cursor++
-	}
-}
-
-func (m *PanelListModel) SetSize(w, h int) {
-	m.width = w
-	m.height = h
-}
-
-func (m *PanelListModel) SetFocused(f bool) {
-	m.focused = f
-}
-
-func (m *PanelListModel) EnterSearch() {
-	m.searchMode = true
-	m.searchInput.SetValue("")
-	m.rebuildItems()
-}
-
-func (m *PanelListModel) ExitSearch() {
-	m.searchMode = false
-	m.searchInput.Blur()
-	m.rebuildItems()
-}
-
-func (m *PanelListModel) FocusSearchInput() {
-	m.searchInput.Focus()
-}
-
-func (m *PanelListModel) BlurSearchInput() {
-	m.searchInput.Blur()
-}
-
-func (m *PanelListModel) SearchActive() bool {
-	return m.searchMode
-}
-
-func (m *PanelListModel) SearchInput() *textinput.Model {
-	return &m.searchInput
-}
-
-func (m *PanelListModel) SetSearchInput(si textinput.Model) {
-	m.searchInput = si
 }
 
 

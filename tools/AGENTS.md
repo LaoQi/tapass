@@ -78,7 +78,7 @@ make GOOS=linux GOARCH=amd64           # 交叉编译
 make dist GOOS=windows GOARCH=amd64    # 构建 + 打包 zip
 
 # 手动 ldflags 注入
-go build -ldflags "-X github.com/tapass/tapass-tools/version.Version=v1.0.0 -X github.com/tapass/tapass-tools/version.Commit=abc1234" ./cmd/tapass-cli
+go build -ldflags "-X github.com/LaoQi/tapass/tools/version.Version=v1.0.0 -X github.com/LaoQi/tapass/tools/version.Commit=abc1234" ./cmd/tapass-cli
 ```
 
 版本显示逻辑（`version.String()`）：

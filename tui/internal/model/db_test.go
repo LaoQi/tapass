@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"charm.land/bubbletea/v2"
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/LaoQi/tapass/tools/vault"
 )
 
 func newTestDB(entries map[string]vault.Entry) *DB {
@@ -291,6 +291,16 @@ func TestCreateDBAndOpenDB(t *testing.T) {
 	if db.Path() != path {
 		t.Errorf("expected path %s, got %s", path, db.Path())
 	}
+	if !db.Dirty() {
+		t.Error("expected DB to be dirty after CreateDB")
+	}
+
+	if err := db.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	if db.Dirty() {
+		t.Error("expected DB to be clean after Save")
+	}
 
 	db2, err := OpenDB(path, password)
 	if err != nil {
@@ -298,6 +308,9 @@ func TestCreateDBAndOpenDB(t *testing.T) {
 	}
 	if db2.Path() != path {
 		t.Errorf("expected path %s, got %s", path, db2.Path())
+	}
+	if db2.Dirty() {
+		t.Error("expected DB to be clean after OpenDB")
 	}
 }
 
@@ -312,9 +325,15 @@ func TestSave(t *testing.T) {
 	}
 
 	db.Set("/group1/entry1/PASSWD", []byte("secret"))
+	if !db.Dirty() {
+		t.Error("expected DB to be dirty after Set")
+	}
 
 	if err := db.Save(); err != nil {
 		t.Fatalf("Save failed: %v", err)
+	}
+	if db.Dirty() {
+		t.Error("expected DB to be clean after Save")
 	}
 
 	db2, err := OpenDB(path, password)
@@ -335,9 +354,12 @@ func TestOpenDBWrongPassword(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/test.tap"
 
-	_, err := CreateDB(path, "correct")
+	db, err := CreateDB(path, "correct")
 	if err != nil {
 		t.Fatalf("CreateDB failed: %v", err)
+	}
+	if err := db.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
 	}
 
 	_, err = OpenDB(path, "wrong")

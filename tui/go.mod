@@ -1,4 +1,4 @@
-module github.com/tapass/tapass-tui
+module github.com/LaoQi/tapass/tui
 
 go 1.25.7
 
@@ -8,7 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/atotto/clipboard v0.1.4
 	github.com/mattn/go-runewidth v0.0.23
-	github.com/tapass/tapass-tools v0.0.0-00010101000000-000000000000
+	github.com/LaoQi/tapass/tools v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -29,4 +29,4 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 )
 
-replace github.com/tapass/tapass-tools => ../tools
+replace github.com/LaoQi/tapass/tools => ../tools

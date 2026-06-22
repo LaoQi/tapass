@@ -8,7 +8,7 @@ import (
 
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
 	w "github.com/tobischo/gokeepasslib/v3/wrappers"
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/LaoQi/tapass/tools/vault"
 )
 
 func ImportKDBX(kdbxPath, tapPath, kdbxPassword, tapPassword string) (*ImportStats, error) {

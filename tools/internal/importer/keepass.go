@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/LaoQi/tapass/tools/vault"
 )
 
 type KeePassFile struct {

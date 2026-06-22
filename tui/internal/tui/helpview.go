@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
 type HelpViewModel struct {
-	active bool
 	width  int
 	height int
 }
@@ -17,21 +17,15 @@ func NewHelpViewModel() HelpViewModel {
 	return HelpViewModel{}
 }
 
-func (m HelpViewModel) Active() bool {
-	return m.active
-}
+func (m HelpViewModel) Init() tea.Cmd { return nil }
 
-func (m *HelpViewModel) Toggle() {
-	m.active = !m.active
-}
-
-func (m *HelpViewModel) Close() {
-	m.active = false
-}
-
-func (m *HelpViewModel) SetSize(w, h int) {
-	m.width = w
-	m.height = h
+func (m HelpViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case resizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+	}
+	return m, nil
 }
 
 var (
@@ -60,7 +54,7 @@ var (
 			Padding(1, 2)
 )
 
-func (m HelpViewModel) View() string {
+func (m HelpViewModel) View() tea.View {
 	w := m.width
 	h := m.height
 	if w < 40 {
@@ -146,5 +140,5 @@ func (m HelpViewModel) View() string {
 
 	panel := helpPanelStyle.Width(panelW - 4).Render(b.String())
 
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, panel)
+	return tea.NewView(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, panel))
 }

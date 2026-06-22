@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tapass/tapass-tools/vault"
+	"github.com/LaoQi/tapass/tools/vault"
 )
 
 const testXML = `<?xml version="1.0" encoding="utf-8"?>
