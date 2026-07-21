@@ -50,4 +50,15 @@ var (
 	copySuccessStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#34D399")).
 				Bold(true)
+
+	passGenCursorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#7C3AED")).
+				Bold(true)
+
+	passGenLabelStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#9CA3AF"))
+
+	passGenValueStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#34D399")).
+				Bold(true)
 )

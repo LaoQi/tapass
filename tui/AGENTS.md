@@ -26,16 +26,18 @@ internal/
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）
     mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点 + 搜索过滤 + propagatePanelSize/propagatePanelFocus + updateLeft/updateRight 类型断言辅助
     panellist.go            # 列表面板（rawKeys存储原始key + buildItems聚合 + rebuildItems过滤聚合 + 分组/属性图标 + 搜索框 + Depth区分 + 滚动跟随 + resizeMsg/setFocusMsg 消息驱动）
-    entrydetail.go          # 条目详情状态管理（detailState/detailMode + Update消息处理 + View路由分发 + IsTOTP/TOTPCode读取 + refresh/saveKV/resizeEditor）
+    entrydetail.go          # 条目详情状态管理（detailState/detailMode + Update消息处理 + View路由分发 + IsTOTP/TOTPCode读取 + refresh/saveKV/resizeEditor + 密码生成器状态detailPassGen）
     detail_attrlist.go      # AttrListView — 属性列表渲染组件（Renderer接口）
     detail_empty.go         # EmptyDetailView — 空详情渲染组件（Renderer接口）
     detail_text.go          # TextDetailView — 文本属性渲染组件（Renderer接口）
     detail_totp.go          # TOTPDetailView — TOTP渲染组件（Renderer接口 + ComputeCode + parseOtpAuthURI + newHash）
     detail_editkv.go        # EditKVView — KV编辑渲染组件（Renderer接口）
+    detail_passgen.go       # PassGenView — 密码生成器渲染组件（Renderer接口）
+    passgen.go              # 密码生成器状态与逻辑（PassGenState/PassGenRules + 生成/游标/切换 + crypto/rand安全随机）
     renderer.go             # Renderer 接口(View() string) + wrapBorder 包级函数
     helpview.go             # 帮助视图（StateHelp 窗口状态，居中面板显示快捷键说明）
     dbconfig.go             # 数据库设置（改密，成功发 PasswordChangedMsg + resizeMsg 消息驱动）
-    styles.go               # 共享样式（含 TOTP/进度条/dirty 标题/状态栏按键/复制成功样式）
+    styles.go               # 共享样式（含 TOTP/进度条/dirty 标题/状态栏按键/复制成功/密码生成器样式）
 ```
 
 ## 依赖说明
@@ -106,12 +108,15 @@ internal/
 - 复制成功显示"已复制到剪贴板"提示（copySuccessStyle），1.5 秒后由 copyClearMsg 自动清除
 - copyClearMsg 由 entrydetail 产生，mainview 层转发，不跳过子组件路由
 - 切换条目/属性/状态时（SetEntryPath/SelectAttr/StartEdit/StartNew/SetAttrList/SetDetailMode）自动清除复制提示
+- 密码生成器：编辑KV时按 Ctrl+G 进入 detailPassGen 状态；j/k 导航规则行，space 切换布尔项，+/- 调整长度，g 生成密码，enter 应用到值区域，esc 返回编辑
+- 密码生成器使用 crypto/rand 安全随机，保证每类启用字符至少出现一次；支持排除易混淆字符（0Oo1lI）
+- EntryDetailModel 持有 passGen PassGenState 字段，进入密码生成器时初始化，应用后回填 valueArea
 
 ## 组件架构约定
 
 - 所有子组件统一实现 `tea.Model` 接口：`Update() (tea.Model, tea.Cmd)` + `View() tea.View`
 - 渲染组件实现 `Renderer` 接口：`View() string`（定义在 renderer.go），纯渲染无状态，通过指针接收者 Set 方法注入数据（Set 无返回值）
-- 渲染组件：AttrListView / EmptyDetailView / TextDetailView / TOTPDetailView / EditKVView
+- 渲染组件：AttrListView / EmptyDetailView / TextDetailView / TOTPDetailView / EditKVView / PassGenView
 - 渲染组件使用方式：`v := &XxxView{}; v.SetXxx(...); content = v.View()`
 - EntryDetailModel 持有状态和 Update 逻辑，View() 根据状态创建 Renderer 指针实例并注入数据渲染，最后统一 wrapBorder 包装
 - App 层使用 `page tea.Model` 统一路由，不再为每个页面持有独立字段

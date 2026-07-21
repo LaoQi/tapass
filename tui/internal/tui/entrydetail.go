@@ -17,6 +17,7 @@ type detailState int
 const (
 	detailView detailState = iota
 	detailEditKV
+	detailPassGen
 	detailConfirmDelete
 )
 
@@ -40,24 +41,25 @@ type AttrInfo struct {
 }
 
 type EntryDetailModel struct {
-	entryPath       string
-	db              *model.DB
-	state           detailState
-	editMode        editMode
-	mode            detailMode
-	attrList        []AttrInfo
-	selectedAttr    string
-	selectedEntry   *model.Entry
-	keyInput        textinput.Model
-	valueArea       textarea.Model
-	editKey         string
-	err             error
+	entryPath        string
+	db               *model.DB
+	state            detailState
+	editMode         editMode
+	mode             detailMode
+	attrList         []AttrInfo
+	selectedAttr     string
+	selectedEntry    *model.Entry
+	keyInput         textinput.Model
+	valueArea        textarea.Model
+	editKey          string
+	err              error
 	pendingDeleteKey string
-	copySuccess     bool
-	width           int
-	height          int
-	focused         bool
-	totpView        *TOTPDetailView
+	copySuccess      bool
+	passGen          PassGenState
+	width            int
+	height           int
+	focused          bool
+	totpView         *TOTPDetailView
 }
 
 func NewEntryDetailModel(entryPath string, db *model.DB) EntryDetailModel {
@@ -239,6 +241,10 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == detailEditKV {
 			m = m.resizeEditor()
 		}
+		if m.state == detailPassGen {
+			m.passGen.width = msg.Width
+			m.passGen.height = msg.Height
+		}
 		if m.totpView != nil {
 			m.totpView.SetSize(m.width, m.height)
 		}
@@ -304,6 +310,15 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.String() == "alt+s" {
 				return m.saveKV()
 			}
+			if msg.String() == "ctrl+g" {
+				m.passGen = newPassGenState()
+				m.passGen.width = m.width
+				m.passGen.height = m.height
+				m.state = detailPassGen
+				m.keyInput.Blur()
+				m.valueArea.Blur()
+				return m, nil
+			}
 			if msg.String() == "esc" {
 				m.state = detailView
 				m.keyInput.Blur()
@@ -327,6 +342,41 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.valueArea, cmd = m.valueArea.Update(msg)
 			return m, cmd
+
+		case detailPassGen:
+			switch msg.String() {
+			case "esc":
+				m.state = detailEditKV
+				m.valueArea.Focus()
+				return m, nil
+			case "enter":
+				if m.passGen.generated != "" {
+					m.valueArea.SetValue(m.passGen.generated)
+					m.valueArea.CursorEnd()
+				}
+				m.state = detailEditKV
+				m.valueArea.Focus()
+				return m, nil
+			case "j", "down":
+				m.passGen.moveCursor(1)
+				return m, nil
+			case "k", "up":
+				m.passGen.moveCursor(-1)
+				return m, nil
+			case " ":
+				m.passGen.toggleBool()
+				return m, nil
+			case "+":
+				m.passGen.adjustLength(1)
+				return m, nil
+			case "-":
+				m.passGen.adjustLength(-1)
+				return m, nil
+			case "g":
+				m.passGen.generate()
+				return m, nil
+			}
+			return m, nil
 
 		case detailConfirmDelete:
 			switch msg.String() {
@@ -446,6 +496,11 @@ func (m EntryDetailModel) View() tea.View {
 		}
 		v.SetError(m.err)
 		v.SetSize(width, height)
+		content = v.View()
+
+	case m.state == detailPassGen:
+		v := &PassGenView{}
+		v.SetState(&m.passGen)
 		content = v.View()
 
 	case m.state == detailConfirmDelete:

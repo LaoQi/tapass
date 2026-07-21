@@ -410,7 +410,9 @@ func (m MainViewModel) buildStatusBar() string {
 			parts = append(parts, m.renderKey("[d] delete", canEdit))
 			parts = append(parts, m.renderKey("[h] back", true))
 		case detailEditKV:
-			return keyEnabledStyle.Render("[Alt+S] save") + "  " + keyEnabledStyle.Render("[Tab] switch field") + "  " + keyEnabledStyle.Render("[Esc] cancel")
+			return keyEnabledStyle.Render("[Alt+S] save") + "  " + keyEnabledStyle.Render("[Tab] switch field") + "  " + keyEnabledStyle.Render("[Ctrl+G] passgen") + "  " + keyEnabledStyle.Render("[Esc] cancel")
+		case detailPassGen:
+			return keyEnabledStyle.Render("[g] generate") + "  " + keyEnabledStyle.Render("[enter] apply") + "  " + keyEnabledStyle.Render("[Esc] cancel")
 		case detailConfirmDelete:
 			return keyEnabledStyle.Render("[d/y] confirm") + "  " + keyEnabledStyle.Render("[any] cancel")
 		}
