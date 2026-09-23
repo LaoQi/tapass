@@ -462,3 +462,48 @@ func TestOnChangeUnsubscribe(t *testing.T) {
 		t.Errorf("expected 1 listener left, got %d", len(db.listeners))
 	}
 }
+
+// 回归：解析视图缓存必须在每次写入后失效，否则会读到陈旧数据。
+func TestResolvedIndexInvalidatedOnMutation(t *testing.T) {
+	db := newTestDB(map[string]vault.Entry{
+		"/grp/entry/PASSWD": {Key: "/grp/entry/PASSWD", Type: vault.TypeText, Value: []byte("v1")},
+	})
+
+	// 建立缓存
+	if e, ok := db.Get("/grp/entry/PASSWD"); !ok || string(e.Value) != "v1" {
+		t.Fatalf("baseline read failed: ok=%v value=%q", ok, string(e.Value))
+	}
+
+	// 覆盖同一 key
+	db.Set("/grp/entry/PASSWD", []byte("v2"))
+	if e, ok := db.Get("/grp/entry/PASSWD"); !ok || string(e.Value) != "v2" {
+		t.Errorf("stale value after Set: ok=%v value=%q", ok, string(e.Value))
+	}
+
+	// 新增 key
+	db.Set("/grp/entry/username", []byte("alice"))
+	if _, ok := db.Get("/grp/entry/username"); !ok {
+		t.Error("new key not visible after Set")
+	}
+	if keys := db.QueryKeys("/grp/entry"); len(keys) != 2 {
+		t.Errorf("expected 2 keys after Set, got %d: %v", len(keys), keys)
+	}
+	if res := db.Query("/grp/entry"); len(res) != 2 {
+		t.Errorf("expected 2 query results after Set, got %d", len(res))
+	}
+
+	// 删除 key
+	db.Delete("/grp/entry/username")
+	if _, ok := db.Get("/grp/entry/username"); ok {
+		t.Error("deleted key still visible")
+	}
+	if res := db.Query("/grp/entry"); len(res) != 1 {
+		t.Errorf("expected 1 query result after Delete, got %d", len(res))
+	}
+
+	// 删除后重新写入同 key 应立即可见
+	db.Set("/grp/entry/username", []byte("bob"))
+	if e, ok := db.Get("/grp/entry/username"); !ok || string(e.Value) != "bob" {
+		t.Errorf("re-added key not visible: ok=%v value=%q", ok, string(e.Value))
+	}
+}

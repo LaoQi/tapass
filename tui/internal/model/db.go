@@ -61,6 +61,24 @@ type DB struct {
 	nextListenerID int
 	dbPath         string
 	dirty          bool
+
+	// resolved 是解析后的 key→Entry 视图缓存（每个 key 的最新有效条目）。
+	// 变更操作将其置 nil，下次读取时重建。
+	// 此前 Query/QueryKeys/Get 每次调用都全量 ResolveLatest，TUI 导航路径上是 O(n²)。
+	resolved map[string]vault.Entry
+}
+
+// resolvedIndex 返回解析视图（懒加载；变更后失效重建）。
+func (db *DB) resolvedIndex() map[string]vault.Entry {
+	if db.resolved == nil {
+		db.resolved = db.vault.List()
+	}
+	return db.resolved
+}
+
+// invalidateResolved 使解析视图缓存失效（任何写入/重建密钥后调用）。
+func (db *DB) invalidateResolved() {
+	db.resolved = nil
 }
 
 func newDB(v *vault.Vault, dbPath string) *DB {
@@ -113,7 +131,7 @@ func (db *DB) Save() error {
 
 func (db *DB) Query(prefix string) []QueryResult {
 	prefix = normalizePathPrefix(prefix)
-	all := db.vault.List()
+	all := db.resolvedIndex()
 	result := make([]QueryResult, 0)
 	for key, entry := range all {
 		if !strings.HasPrefix(key, prefix+"/") {
@@ -129,7 +147,7 @@ func (db *DB) Query(prefix string) []QueryResult {
 
 func (db *DB) QueryKeys(prefix string) []string {
 	prefix = normalizePathPrefix(prefix)
-	all := db.vault.List()
+	all := db.resolvedIndex()
 	result := make([]string, 0, len(all))
 	for key := range all {
 		if !strings.HasPrefix(key, prefix+"/") {
@@ -142,7 +160,7 @@ func (db *DB) QueryKeys(prefix string) []string {
 }
 
 func (db *DB) Get(key string) (Entry, bool) {
-	all := db.vault.List()
+	all := db.resolvedIndex()
 	e, ok := all[key]
 	if !ok {
 		return Entry{}, false
@@ -152,12 +170,14 @@ func (db *DB) Get(key string) (Entry, bool) {
 
 func (db *DB) Set(key string, value []byte) []tea.Cmd {
 	db.vault.Set(key, value)
+	db.invalidateResolved()
 	db.dirty = true
 	return db.emit(Event{Type: EventAttrSet, Key: key})
 }
 
 func (db *DB) Delete(key string) []tea.Cmd {
 	db.vault.Delete(key)
+	db.invalidateResolved()
 	db.dirty = true
 	return db.emit(Event{Type: EventAttrDeleted, Key: key})
 }
@@ -167,6 +187,7 @@ func (db *DB) ChangePassword(old, new string) ([]tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.invalidateResolved()
 	db.dirty = true
 	return db.emit(Event{Type: EventVaultChanged}), nil
 }
@@ -191,6 +212,7 @@ func (db *DB) Rekey(oldPassword, newPassword string, a Argon2Params) ([]tea.Cmd,
 	}); err != nil {
 		return nil, err
 	}
+	db.invalidateResolved()
 	db.dirty = true
 	return db.emit(Event{Type: EventConfigChanged}), nil
 }

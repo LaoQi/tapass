@@ -17,8 +17,9 @@ go run ./cmd/tapass-tui/                          # 运行
 cmd/tapass-tui/main.go     # 入口（可选数据库路径参数）
 internal/
   model/                    # 数据层（DB + 工具函数）
-    db.go                   # DB 核心：newDB/OpenDB/CreateDB(不写文件,dirty=true)/Save(清除dirty)/Query/QueryKeys/Get/Set/Delete/ChangePassword/Rekey/Config/Dirty/OnChange/atomicWriteFile（已移除 SearchKeys/SetConfig）
-    db_test.go              # DB 测试（含持久化测试）
+    db.go                   # DB 核心：newDB/OpenDB/CreateDB(不写文件,dirty=true)/Save(清除dirty)/Query/QueryKeys/Get/Set/Delete/ChangePassword/Rekey/Config/Dirty/OnChange/atomicWriteFile + 解析视图缓存(resolvedIndex/invalidateResolved)（已移除 SearchKeys/SetConfig）
+    db_test.go              # DB 测试（含持久化、缓存失效测试）
+    bench_test.go           # 导航/查询基准（防性能回归）
     listing.go              # ListItem(Depth字段) + normalizePathPrefix/ParentPath/EntryPath
     listing_test.go
   tui/                      # Bubble Tea 视图层
@@ -108,6 +109,10 @@ internal/
 - 删除需二次确认：按 `d` 进入 detailConfirmDelete 状态，再按 `d`/`y` 确认，其他键取消
 - `DB.OnChange(fn)` 返回退订函数：监听器按自增 id 记录并移除（Go 无法比较函数值，
   不能用函数相等判断），退订幂等；当前生产代码未注册监听器，仅测试使用
+- DB 内部维护解析视图缓存 `resolved map[string]vault.Entry`（懒加载，语义等价 `vault.List()`）：`Query`/`QueryKeys`/`Get` 读取它，不再每次调用全量 `ResolveLatest`
+  - 任何写入路径（`Set`/`Delete`/`ChangePassword`/`Rekey`）必须调用 `invalidateResolved()`，否则会读到陈旧数据（有回归测试覆盖）
+  - 缓存持有的是 vault 条目的值拷贝（`Value` 切片共享），DB 边界处仍用 `copyEntry` 向调用方返回副本
+  - 效果（2000 条，`bench_test.go`）：一次导航 117 ms → 0.16 ms；`Get` 1.13 ms → 4.5 µs
 - DB 不暴露 vault：删除 `Vault()`/`Header()` 方法，外部禁止直接调用 vault
 - DB 提供 `Config()`（只读）与 `Rekey(oldPassword, newPassword, Argon2Params)`（改 KDF 参数的唯一入口）
 - 已删除 `SetConfig`：只改头部参数而不重新派生会让 vault 永久无法打开；参数变更必须走 vault `Rekey`

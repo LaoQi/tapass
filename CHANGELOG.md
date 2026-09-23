@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `DB` 增加解析视图缓存（`resolvedIndex`/`invalidateResolved`）：`Query`/`QueryKeys`/`Get` 不再每次调用
+  全量 `ResolveLatest`。此前 TUI 每次按键是 O(n²)，2000 条时单次导航约 117 ms；
+  现在约 0.16 ms（`Get` 1.13 ms → 4.5 µs），并新增 `bench_test.go` 防回归
+
 - 重构搜索为基于原始 key 的过滤机制：面板存储 `rawKeys`，搜索过滤作用于原始 key 后再聚合生成列表项
 
 ### Removed
