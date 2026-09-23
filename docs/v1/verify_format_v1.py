@@ -3,7 +3,7 @@
 
 用规范文档 + 测试向量手写 HKDF-SHA256 与 XChaCha20-Poly1305，
 按 docs/v1/data-structures.md 的偏移解析头部与记录，验证：
-  1. HKDF 两步派生链（okm64 → prk2 → HMAC Key / Encrypt Key）
+  1. HKDF 5 步派生链（prk1 → okm64 → prk2 → HMAC Key / Encrypt Key）
   2. 头部字段偏移/字节序/MAC 规则/HMAC 规则
   3. 数据段记录布局（timestamp/type/key_length/key/value_length/value）
   4. XChaCha20-Poly1305 密文体（AAD 为空）

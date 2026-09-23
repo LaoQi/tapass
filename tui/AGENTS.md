@@ -17,13 +17,13 @@ go run ./cmd/tapass-tui/                          # 运行
 cmd/tapass-tui/main.go     # 入口（可选数据库路径参数）
 internal/
   model/                    # 数据层（DB + 工具函数）
-    db.go                   # DB 核心：newDB/OpenDB/CreateDB(不写文件,dirty=true)/Save(清除dirty)/Query/QueryKeys/Get/Set/Delete/ChangePassword/Rekey/Config/Dirty/OnChange/atomicWriteFile + 解析视图缓存(resolvedIndex/invalidateResolved)（已移除 SearchKeys/SetConfig）
+    db.go                   # DB 核心：newDB/OpenDB/CreateDB(不写文件,dirty=true)/Save(清除dirty)/Query/QueryKeys/Get/Set/Delete/ChangePassword/Rekey/Config/Dirty/OnChange/atomicWriteFile + 解析视图缓存(resolvedIndex/invalidateResolved)
     db_test.go              # DB 测试（含持久化、缓存失效测试）
     bench_test.go           # 导航/查询基准（防性能回归）
     listing.go              # ListItem(Depth字段) + normalizePathPrefix/ParentPath/EntryPath
     listing_test.go
   tui/                      # Bubble Tea 视图层
-    app.go                  # 主 Model + AppState(DB/DBPath) + page tea.Model 页面路由 + 窗口状态(StateWelcome/StateMainView/StateHelp/StateDBConfig) + 消息类型 + switchToMainView/updateMainView 辅助 + ErrorMsg 统一转 showErrorMsg 投递给页面（不再持有 err 字段）
+    app.go                  # 主 Model + AppState(DB/DBPath) + page tea.Model 页面路由 + 窗口状态(StateWelcome/StateMainView/StateHelp/StateDBConfig) + 消息类型 + switchToMainView/updateMainView 辅助 + ErrorMsg 统一转 showErrorMsg 投递给页面
     app_test.go             # ErrorMsg → 状态栏错误展示回归测试
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）+ 覆盖确认（WelcomeConfirmOverwrite）+ 目标路径校验（checkNewVaultPath）
     welcome_test.go         # 覆盖确认/路径校验回归测试
@@ -77,11 +77,10 @@ internal/
 - 压缩使用 flate 裸 DEFLATE 流（RFC 1951，非 zlib 封装），设计文档已同步该描述
 - Node.Path 统一以 `/` 开头，与 vault key 前缀一致
 - 新建条目只创建路径前缀，用户在详情页添加属性
-- 属性编辑先统一文本，PASSWD/TOTP/SSH 专属控件后续迭代
-- 存储扩展通过实现 `store.Store` 接口（先 local，后续 WebDAV）→ **已删除 store 包，DB 统管持久化**
-- Store.Save 需传入 path 参数（vault 不持有文件路径）→ **DB.Save() 自身持有 dbPath**
-- vault 包不操作文件系统，文件 I/O 由 store 实现负责（local 使用原子写入）→ **DB 内部 atomicWriteFile 处理**
-- TUI 组件均持有 width/height，通过 resizeMsg 消息响应 resize（不再使用 SetSize 方法）
+- 属性编辑态统一用文本控件；查看态 TOTP 有专属渲染（`TOTPDetailView`，动态验证码 + 剩余时间）、PASSWD 支持密码生成器（`Ctrl+G`）与一键复制；SSH 暂无专属控件
+- 持久化由 `model.DB` 统管：DB 自身持有 dbPath，内部 `atomicWriteFile` 原子写入（临时文件 + rename），无独立 store 包
+- vault 包不操作文件系统，所有 I/O 通过 `[]byte` 传递，文件读写由调用方负责
+- 尺寸/焦点传递分两类：pane 组件（PanelListModel/EntryDetailModel/WelcomeModel/DBConfigModel/HelpModel）响应 `resizeMsg`/`setFocusMsg`，不暴露 SetSize/SetFocused；Renderer 渲染组件（AttrListView/EditKVView/EmptyDetailView/TextDetailView/TOTPDetailView）保留 `SetSize(w,h)` 注入尺寸（PassGenView 由 SetState 带入）
 - 共享样式定义在 `tui/styles.go`
 - lipgloss v2 border 渲染存在 2 列内部开销：设置 `Width(w)` 时实际可用内容宽度为 `w-2`，因此 `wrapBorder` 设置 `Width(width-2)` 后实际可用宽度为 `width-4`
 - 列表面板标题和详情面板标题均使用底部边框分隔符（NormalBorder bottom），渲染宽度需减 2 抵消内部开销
@@ -94,7 +93,6 @@ internal/
 - 详情面板 detailModeAttrList：显示属性名+修改时间列表；detailModeDetail：标题=属性key，第一栏=修改时间，第二栏=属性值
 - 右栏展示由显式意图消息驱动（`showAttrListMsg`/`showAttrDetailMsg`/`clearDetailMsg`，定义在 messages.go）：
   左栏选中分组/条目（Depth>0）→ `showAttrListMsg`；选中属性（Depth==0）→ `showAttrDetailMsg`；左栏为空 → `clearDetailMsg`
-  - 旧 `syncRightMsg` 的字段（EntryPath/Attrs/SetDetailMode/ClearOnly）语义互相覆盖，曾导致属性列表不可达，已移除
   - 三个消息均只改右栏数据，不改变 `m.state`（编辑/密码生成/删除确认状态不被刷新打断）
 - 属性列表模式下 `EntryPath` = 左栏选中项的路径，按 `n` 新建属性时用作 key 前缀
 - TOTP 属性：解析 `otpauth://totp/` URI，支持 secret/digits/period/algorithm(SHA1/SHA256/SHA512)参数；计算逻辑在 TOTPDetailView.ComputeCode()，入口在 detail_totp.go
@@ -113,13 +111,13 @@ internal/
 - 删除需二次确认：按 `d` 进入 detailConfirmDelete 状态，再按 `d`/`y` 确认，其他键取消
 - `DB.OnChange(fn)` 返回退订函数：监听器按自增 id 记录并移除（Go 无法比较函数值，
   不能用函数相等判断），退订幂等；当前生产代码未注册监听器，仅测试使用
-- DB 内部维护解析视图缓存 `resolved map[string]vault.Entry`（懒加载，语义等价 `vault.List()`）：`Query`/`QueryKeys`/`Get` 读取它，不再每次调用全量 `ResolveLatest`
+- DB 内部维护解析视图缓存 `resolved map[string]vault.Entry`（懒加载，语义等价 `vault.List()`）：`Query`/`QueryKeys`/`Get` 读取缓存，不重复全量 `ResolveLatest`
   - 任何写入路径（`Set`/`Delete`/`ChangePassword`/`Rekey`）必须调用 `invalidateResolved()`，否则会读到陈旧数据（有回归测试覆盖）
   - 缓存持有的是 vault 条目的值拷贝（`Value` 切片共享），DB 边界处仍用 `copyEntry` 向调用方返回副本
   - 效果（2000 条，`bench_test.go`）：一次导航 117 ms → 0.16 ms；`Get` 1.13 ms → 4.5 µs
 - DB 不暴露 vault：删除 `Vault()`/`Header()` 方法，外部禁止直接调用 vault
 - DB 提供 `Config()`（只读）与 `Rekey(oldPassword, newPassword, Argon2Params)`（改 KDF 参数的唯一入口）
-- 已删除 `SetConfig`：只改头部参数而不重新派生会让 vault 永久无法打开；参数变更必须走 vault `Rekey`
+- KDF 参数变更只能走 vault `Rekey`：只改头部参数而不重新派生会使 vault 永久无法打开，因此不提供该入口
 - KDF 参数与密钥一致性由 vault 层保证（`MarshalBinary` 不一致时返回 `ErrKDFParamsChanged`）
 - `NewDB` 私有化为 `newDB`：外部通过 `OpenDB`/`CreateDB` 获取 DB 实例；CreateDB 不立即写文件，需手动 Save 落盘
 - 状态栏 `[c] config` 始终显示，`[Ctrl+S] save` 仅 dirty 时显示
@@ -152,11 +150,10 @@ internal/
 - 渲染组件：AttrListView / EmptyDetailView / TextDetailView / TOTPDetailView / EditKVView / PassGenView
 - 渲染组件使用方式：`v := &XxxView{}; v.SetXxx(...); content = v.View()`
 - EntryDetailModel 持有状态和 Update 逻辑，View() 根据状态创建 Renderer 指针实例并注入数据渲染，最后统一 wrapBorder 包装
-- App 层使用 `page tea.Model` 统一路由，不再为每个页面持有独立字段
+- App 层使用 `page tea.Model` 统一路由，不按页面对应独立字段
 - `AppState` 集中管理 DB/DBPath，dirty 状态由 DB 内部维护，App 层通过 DB.Dirty() 读取
-- 子组件不再暴露 SetSize/SetFocused 方法，改用 `resizeMsg`/`setFocusMsg` 消息驱动
 - `updateLeft`/`updateLeftCmd`/`updateRight`/`updateRightCmd` 辅助函数处理 tea.Model → 具体类型的断言
-- Help 从覆盖层模式改为独立窗口状态（StateHelp），不再持有 active 标志
+- Help 是独立窗口状态（StateHelp），不持有 active 标志
 - `propagatePanelSize()`/`propagatePanelFocus()` 在 mainview 中集中分发 resize/focus 消息给子面板
 - `wrapBorder` 为包级函数（renderer.go），供 EntryDetailModel.View() 统一调用
 

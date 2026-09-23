@@ -36,6 +36,7 @@ tapass/
 
 ## 设计文档
 
+- 文档索引与分类规则：`docs/README.md`
 - V1 版本设计文档：`docs/v1/`
 - 数据结构定义：`docs/v1/data-structures.md`
 - 数据结构 JSON Schema：`docs/v1/schema.json`
@@ -43,6 +44,7 @@ tapass/
 - 版本概述：`docs/v1/overview.md`
 - 格式一致性测试向量：`tools/vault/testdata/format_v1_vectors.json`
 - 独立校验脚本（不依赖参考实现）：`python3 docs/v1/verify_format_v1.py`
+- 历史实施复盘（归档，非现行约定）：`docs/archive/`
 
 ## 变更日志
 

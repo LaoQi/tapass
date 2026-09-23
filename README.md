@@ -38,6 +38,7 @@ tapass/
 
 ## 设计文档
 
+- [文档索引与分类规则](docs/README.md)
 - [V1 版本概述](docs/v1/overview.md)
 - [V1 数据结构](docs/v1/data-structures.md)
 - [V1 加密模型](docs/v1/crypto-model.md)

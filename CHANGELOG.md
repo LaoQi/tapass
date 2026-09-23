@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   全量 `ResolveLatest`。此前 TUI 每次按键是 O(n²)，2000 条时单次导航约 117 ms；现在约 0.16 ms
   （`Get` 1.13 ms → 4.5 µs）
 - 设计文档与实现对齐：压缩为原始 flate 流（RFC 1951），非 zlib 封装
+- TUI 架构重构（dev 期间完成，现补录）：
+  - 组件改为消息驱动：pane 组件不再暴露 `SetSize`/`SetFocused`，改由 `resizeMsg`/`setFocusMsg` 集中分发
+    （Renderer 渲染组件保留 `SetSize` 注入尺寸）
+  - 详情渲染拆分为无状态 Renderer 组件（`detail_*.go`），`EntryDetailModel.View()` 按状态构造并注入数据
+  - App 层统一用 `page tea.Model` 路由；dirty 状态下沉到 `DB` 作为单一真相源（`DB.Dirty()`）
+  - 帮助界面从覆盖层改为独立窗口状态 `StateHelp`
+- 模块路径迁移：`github.com/tapass` → `github.com/LaoQi/tapass`（tools、tui 两个模块）
 
 ### Fixed
 
