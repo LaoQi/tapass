@@ -34,6 +34,12 @@ type ErrorMsg struct {
 	Err error
 }
 
+// showErrorMsg：把错误显示到主视图状态栏（App 层统一投递）
+type showErrorMsg struct{ Err error }
+
+// clearErrorMsg：清除状态栏错误
+type clearErrorMsg struct{}
+
 type dirtyMsg struct{ Dirty bool }
 
 type cancelQuitMsg struct{}

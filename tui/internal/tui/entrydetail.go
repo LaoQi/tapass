@@ -12,6 +12,9 @@ import (
 	"github.com/atotto/clipboard"
 )
 
+// copyErrorDisplayDuration 复制失败提示的显示时长（比成功提示长，便于察觉）。
+const copyErrorDisplayDuration = 5 * time.Second
+
 type detailState int
 
 const (
@@ -55,6 +58,7 @@ type EntryDetailModel struct {
 	err              error
 	pendingDeleteKey string
 	copySuccess      bool
+	copyErr          string
 	passGen          PassGenState
 	width            int
 	height           int
@@ -125,6 +129,13 @@ func (m EntryDetailModel) newTOTPView(value string) *TOTPDetailView {
 	return v
 }
 
+// clearCopyState 清除复制提示（成功提示与失败提示一并清除）。
+func (m EntryDetailModel) clearCopyState() EntryDetailModel {
+	m.copySuccess = false
+	m.copyErr = ""
+	return m
+}
+
 func (m EntryDetailModel) refresh() EntryDetailModel {
 	if m.selectedAttr == "" || m.db == nil {
 		m.selectedEntry = nil
@@ -159,7 +170,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedAttr = ""
 		m.selectedEntry = nil
 		m.state = detailView
-		m.copySuccess = false
+		m = m.clearCopyState()
 		m.mode = detailModeAttrList
 		m.attrList = nil
 		m.totpView = nil
@@ -168,7 +179,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.entryPath = msg.Prefix
 		m.selectedAttr = ""
 		m.selectedEntry = nil
-		m.copySuccess = false
+		m = m.clearCopyState()
 		m.mode = detailModeAttrList
 		m.attrList = msg.Attrs
 		m.totpView = nil
@@ -177,7 +188,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.entryPath = msg.EntryPath
 		m.selectedAttr = msg.Attr
 		m.selectedEntry = nil
-		m.copySuccess = false
+		m = m.clearCopyState()
 		m.mode = detailModeDetail
 		m.attrList = nil
 		m.totpView = nil
@@ -224,7 +235,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.valueArea.SetValue("")
 		m.valueArea.Blur()
 		m.err = nil
-		m.copySuccess = false
+		m = m.clearCopyState()
 		return m, nil
 	case refreshTOTPMsg:
 		if m.selectedAttr == "TOTP" && m.selectedEntry != nil {
@@ -257,7 +268,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case copyClearMsg:
-		m.copySuccess = false
+		m = m.clearCopyState()
 
 	case tea.KeyPressMsg:
 		m.err = nil
@@ -276,7 +287,7 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.valueArea.Focus()
 					m.valueArea.CursorEnd()
 					m.err = nil
-					m.copySuccess = false
+					m = m.clearCopyState()
 					m = m.resizeEditor()
 					return m, nil
 				}
@@ -288,7 +299,13 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						copyText = string(m.selectedEntry.Value)
 					}
-					_ = clipboard.WriteAll(copyText)
+					m = m.clearCopyState()
+					if err := clipboard.WriteAll(copyText); err != nil {
+						m.copyErr = err.Error()
+						return m, tea.Tick(copyErrorDisplayDuration, func(t time.Time) tea.Msg {
+							return copyClearMsg{}
+						})
+					}
 					m.copySuccess = true
 					return m, tea.Tick(1500*time.Millisecond, func(t time.Time) tea.Msg {
 						return copyClearMsg{}
@@ -532,12 +549,13 @@ func (m EntryDetailModel) View() tea.View {
 		content = v.View()
 	}
 
-	if m.selectedAttr != "" && m.selectedAttr != "TOTP" && m.selectedEntry != nil && m.state == detailView && m.copySuccess {
-		content += "\n" + copySuccessStyle.Render("已复制到剪贴板")
-	}
-
-	if m.selectedAttr == "TOTP" && m.selectedEntry != nil && m.state == detailView && m.copySuccess {
-		content += "\n" + copySuccessStyle.Render("已复制到剪贴板")
+	if m.selectedAttr != "" && m.selectedEntry != nil && m.state == detailView {
+		switch {
+		case m.copySuccess:
+			content += "\n" + copySuccessStyle.Render("已复制到剪贴板")
+		case m.copyErr != "":
+			content += "\n" + errorStyle.Render("复制失败: "+m.copyErr)
+		}
 	}
 
 	return tea.NewView(wrapBorder(content, m.focused, width, height))

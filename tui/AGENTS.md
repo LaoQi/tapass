@@ -22,7 +22,7 @@ internal/
     listing.go              # ListItem(Depth字段) + normalizePathPrefix/ParentPath/EntryPath
     listing_test.go
   tui/                      # Bubble Tea 视图层
-    app.go                  # 主 Model + AppState(DB/DBPath) + page tea.Model 页面路由 + 窗口状态(StateWelcome/StateMainView/StateHelp/StateDBConfig) + 消息类型 + switchToMainView/updateMainView 辅助
+    app.go                  # 主 Model + AppState(DB/DBPath) + page tea.Model 页面路由 + 窗口状态(StateWelcome/StateMainView/StateHelp/StateDBConfig) + 消息类型 + switchToMainView/updateMainView 辅助 + ErrorMsg 统一转 showErrorMsg 投递给页面（不再持有 err 字段）
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）
     mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点 + 搜索过滤 + propagatePanelSize/propagatePanelFocus + syncRightFromLeft(发送右栏意图消息) + updateLeft/updateRight 类型断言辅助
     mainview_test.go        # 右栏意图路由回归测试（属性列表 / 属性详情 / 空列表 / 事件刷新）
@@ -114,6 +114,16 @@ internal/
 - 欢迎页居中排版，TAPASS ASCII art 紫色显示
 - 右侧面板查看模式下按 `y` 复制属性值到剪贴板：TOTP 属性复制当前验证码，其他属性复制原始值
 - 复制成功显示"已复制到剪贴板"提示（copySuccessStyle），1.5 秒后由 copyClearMsg 自动清除
+- 复制失败（如缺少 xclip/xsel）必须显示"复制失败: <原因>"（errorStyle，5 秒后清除），不得无条件显示成功提示
+- 复制提示（成功/失败）统一由 `clearCopyState()` 清理，切换条目/属性/开始编辑时调用
+
+## 错误展示
+
+- `AppModel` 不持有错误字段：`ErrorMsg` 在 app 层转为 `showErrorMsg` 投递给 page，由 `MainViewModel` 渲染
+- 主视图状态栏在 `errText != ""` 时整体替换为 `[!] <错误>  [Ctrl+S] retry  [q] quit`（1 行，不改变布局；超长按面板宽度截断）
+- 错误 10 秒后由 `clearErrorMsg`（`errorDisplayDuration`）自动清除，保存成功（VaultSavedMsg）或新的错误会覆盖它
+- 保存失败时 dirty 仍为 true，标题继续显示 `[未保存]`，用户可按 Ctrl+S 重试
+- 欢迎页/数据库设置/编辑器的局部错误仍由各自页面渲染（`welcome.go`、`dbconfig.go`、`detail_editkv.go`）
 - copyClearMsg 由 entrydetail 产生，mainview 层转发，不跳过子组件路由
 - 切换条目/属性时（`showAttrListMsg`/`showAttrDetailMsg`/`startNewMsg`）自动清除复制提示
 - 密码生成器：编辑KV时按 Ctrl+G 进入 detailPassGen 状态；j/k 导航规则行，space 切换布尔项，+/- 调整长度，g 生成密码，enter 应用到值区域，esc 返回编辑

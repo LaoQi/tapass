@@ -25,7 +25,6 @@ type AppModel struct {
 	page   tea.Model
 	width  int
 	height int
-	err    error
 }
 
 func NewApp(dbPath string) AppModel {
@@ -157,7 +156,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ErrorMsg:
-		m.err = msg.Err
+		if mv, ok := m.page.(MainViewModel); ok {
+			np, cmd := mv.Update(showErrorMsg{Err: msg.Err})
+			m.page = np.(MainViewModel)
+			return m, cmd
+		}
 		return m, nil
 	}
 

@@ -28,6 +28,7 @@ type MainViewModel struct {
 	searchActive bool
 	totpActive   bool
 	dirty        bool
+	errText      string
 
 	width  int
 	height int
@@ -40,6 +41,9 @@ const (
 	focusLeft
 	focusRight
 )
+
+// errorDisplayDuration 状态栏错误自动消失的时间。
+const errorDisplayDuration = 10 * time.Second
 
 var (
 	statusBarStyle = lipgloss.NewStyle().
@@ -133,6 +137,14 @@ func (m MainViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dirtyMsg:
 		m.dirty = msg.Dirty
+		return m, nil
+	case showErrorMsg:
+		m.errText = msg.Err.Error()
+		return m, tea.Tick(errorDisplayDuration, func(time.Time) tea.Msg {
+			return clearErrorMsg{}
+		})
+	case clearErrorMsg:
+		m.errText = ""
 		return m, nil
 	case cancelQuitMsg:
 		if m.state == StatePendingQuit {
@@ -372,6 +384,16 @@ func (m MainViewModel) handleEnterSearch() MainViewModel {
 }
 
 func (m MainViewModel) buildStatusBar() string {
+	if m.errText != "" {
+		maxWidth := m.width - 4
+		if maxWidth < 20 {
+			maxWidth = 20
+		}
+		return errorStyle.Render("[!] "+truncateString(m.errText, maxWidth)) + "  " +
+			keyEnabledStyle.Render("[Ctrl+S] retry") + "  " +
+			m.renderKey("[q] quit", true)
+	}
+
 	if m.state == StatePendingQuit {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true).Render("[y] save & quit") + "  " +
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")).Bold(true).Render("[n] quit without saving") + "  " +
