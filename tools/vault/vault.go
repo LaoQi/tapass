@@ -10,6 +10,33 @@ type Vault struct {
 	Hdr     *Header
 	SubKeys *SubKeys
 	Entries []Entry
+
+	// 当前 SubKeys 的派生上下文（单一真相源）。
+	// 头部参数/salt 与此不一致时，SubKeys 无法解开头部所声明的库，
+	// MarshalBinary 会拒绝写出（见 ErrKDFParamsChanged）。
+	derivedSalt   [SaltSize]byte
+	derivedParams Argon2Params
+}
+
+// Params 返回头部声明的 KDF 参数（只读副本）。
+func (v *Vault) Params() Argon2Params {
+	return v.Hdr.Argon2
+}
+
+// DerivedParams 返回当前密钥实际的派生参数。
+func (v *Vault) DerivedParams() Argon2Params {
+	return v.derivedParams
+}
+
+// setDerivedContext 记录当前密钥的派生上下文。
+func (v *Vault) setDerivedContext(salt [SaltSize]byte, params Argon2Params) {
+	v.derivedSalt = salt
+	v.derivedParams = params
+}
+
+// paramsConsistent 判断头部声明与密钥派生上下文是否一致。
+func (v *Vault) paramsConsistent() bool {
+	return v.derivedSalt == v.Hdr.Salt && v.derivedParams == v.Hdr.Argon2
 }
 
 func Create(password string) ([]byte, error) {
@@ -58,7 +85,7 @@ func Open(data []byte, password string) (*Vault, error) {
 	}
 
 	if !hdr.VerifyHMAC(subKeys.HMACKey) {
-		return nil, fmt.Errorf("wrong password")
+		return nil, ErrWrongPassword
 	}
 
 	ciphertext := data[HeaderSize:]
@@ -82,11 +109,13 @@ func Open(data []byte, password string) (*Vault, error) {
 		return nil, fmt.Errorf("parse entries: %w", err)
 	}
 
-	return &Vault{
+	v := &Vault{
 		Hdr:     hdr,
 		SubKeys: subKeys,
 		Entries: entries,
-	}, nil
+	}
+	v.setDerivedContext(hdr.Salt, hdr.Argon2)
+	return v, nil
 }
 
 func (v *Vault) Set(key string, value []byte) {
@@ -133,6 +162,11 @@ func (v *Vault) List() map[string]Entry {
 }
 
 func (v *Vault) MarshalBinary() ([]byte, error) {
+	if !v.paramsConsistent() {
+		return nil, fmt.Errorf("%w: header argon2=%+v, keys derived with %+v",
+			ErrKDFParamsChanged, v.Hdr.Argon2, v.derivedParams)
+	}
+
 	var data []byte
 	for _, e := range v.Entries {
 		b, err := e.MarshalBinary()
@@ -173,7 +207,24 @@ func (v *Vault) MarshalBinary() ([]byte, error) {
 	return fileData, nil
 }
 
+// ChangePassword 更换主密码，KDF 参数保持不变（等价于参数不变的 Rekey）。
 func (v *Vault) ChangePassword(oldPassword, newPassword string) ([]byte, error) {
+	return v.Rekey(oldPassword, newPassword, v.Hdr.Argon2)
+}
+
+// Rekey 用新的 KDF 参数重写整个 vault：新 salt、新 nonce、按新参数重新派生密钥、
+// 重新加密并自校验。这是修改 KDF 参数的唯一合法入口（也可以同时更换主密码）。
+//
+// 必须提供当前主密码：新密钥要从密码按新参数重新派生；仅改参数而不重新派生
+// 会让 vault 无法再被打开（历史缺陷）。
+func (v *Vault) Rekey(oldPassword, newPassword string, params Argon2Params) ([]byte, error) {
+	if err := ValidateArgon2Params(params); err != nil {
+		return nil, err
+	}
+	if err := CheckArgon2Resource(params); err != nil {
+		return nil, err
+	}
+
 	oldSubKeys, err := v.Hdr.DeriveKeys(oldPassword)
 	if err != nil {
 		return nil, fmt.Errorf("derive old keys: %w", err)
@@ -184,7 +235,7 @@ func (v *Vault) ChangePassword(oldPassword, newPassword string) ([]byte, error) 
 	}
 	oldSubKeys.Zero()
 
-	hdr, subKeys, err := NewHeader(newPassword, v.Hdr.Argon2, v.Hdr.CompressionID)
+	hdr, subKeys, err := NewHeader(newPassword, params, v.Hdr.CompressionID)
 	if err != nil {
 		return nil, fmt.Errorf("create new header: %w", err)
 	}
@@ -226,6 +277,7 @@ func (v *Vault) ChangePassword(oldPassword, newPassword string) ([]byte, error) 
 
 	v.Hdr = hdr
 	v.SubKeys = subKeys
+	v.setDerivedContext(hdr.Salt, params)
 	return fileData, nil
 }
 

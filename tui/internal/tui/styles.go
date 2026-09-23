@@ -27,8 +27,8 @@ var (
 			Foreground(lipgloss.Color("#9CA3AF"))
 
 	focusBorderStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#FF8C00"))
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#FF8C00"))
 
 	blurBorderStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -45,7 +45,7 @@ var (
 			Foreground(lipgloss.Color("#E5E7EB"))
 
 	keyDisabledStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#4B5563"))
+				Foreground(lipgloss.Color("#4B5563"))
 
 	copySuccessStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#34D399")).

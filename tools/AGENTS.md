@@ -53,7 +53,11 @@ vault 包不直接操作文件系统，所有 I/O 通过 `[]byte` 传递：
 | `Create` | `(password string) ([]byte, error)` | 创建空 vault，返回序列化字节 |
 | `Open` | `(data []byte, password string) (*Vault, error)` | 从字节反序列化并解密 |
 | `MarshalBinary` | `(*Vault) ([]byte, error)` | 序列化为字节（重新生成 Nonce） |
-| `ChangePassword` | `(old, new string) ([]byte, error)` | 改密，返回新 vault 字节 |
+| `ChangePassword` | `(old, new string) ([]byte, error)` | 改密（KDF 参数不变），返回新 vault 字节 |
+| `Rekey` | `(old, new string, params Argon2Params) ([]byte, error)` | 改 KDF 参数（可同时改密）：新 salt/nonce、重新派生、重新加密并自校验 |
+| `Params` | `() Argon2Params` | 头部声明的 KDF 参数（只读） |
+| `ValidateArgon2Params` | `(Argon2Params) error` | 参数能否被本实现精确执行 |
+| `CheckArgon2Resource` | `(Argon2Params) error` | 本机当前是否有能力按该参数解析（Linux 读 /proc/meminfo） |
 | `Set/SetBlob/Delete` | 纯内存操作 | 不自动持久化 |
 | `Sort` | `()` | 排序 Entries |
 | `Compact` | `()` | 压缩 Entries（纯内存） |
@@ -63,6 +67,15 @@ vault 包不直接操作文件系统，所有 I/O 通过 `[]byte` 传递：
 ## 实现约定
 
 - Argon2 默认参数：time=6, memory=16384 (16 MiB), parallelism=1
+- KDF 参数约束（可精确执行，否则拒绝解析）：`time >= 1`、`1 <= parallelism <= 255`、
+  `memory >= 8*parallelism` 且 `memory` 是 `4*parallelism` 的整数倍（argon2 会把 memory 按 lane 向下对齐，
+  声明值不可精确执行时跨实现会派生出不同密钥，表现为误导性"密码错误"）
+- **不设参数上下限**：能否解析由本机可用内存决定（`CheckArgon2Resource`，需 memory + 8 MiB 开销）；
+  内存不足返回 `ErrInsufficientMemory`，不得 OOM kill 或 panic
+- KDF 参数与密钥必须一致：`Vault` 记录派生上下文，`MarshalBinary` 在不一致时返回 `ErrKDFParamsChanged`
+  （历史缺陷：直接改头部参数会让 vault 永久无法打开）
+- 修改 KDF 参数只能通过 `Rekey`（必须提供当前主密码，因为新密钥需按新参数重新派生）
+- 错误哨兵：`ErrInvalidKDFParams` / `ErrKDFParamsChanged` / `ErrInsufficientMemory` / `ErrWrongPassword`
 - 压缩使用 flate 裸 DEFLATE 流（非 zlib），与设计文档 "zlib/DEFLATE" 描述不同，为本项目明确选择
 - MarshalBinary 每次调用重新生成 Nonce
 - SubKeys.Zero() 安全清零密钥

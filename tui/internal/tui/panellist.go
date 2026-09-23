@@ -8,8 +8,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/mattn/go-runewidth"
 	"github.com/LaoQi/tapass/tui/internal/model"
+	"github.com/mattn/go-runewidth"
 )
 
 const iconDisplayWidth = 3
@@ -367,5 +367,3 @@ func (m PanelListModel) SelectedItem() model.ListItem {
 func (m PanelListModel) ItemCount() int {
 	return len(m.items)
 }
-
-

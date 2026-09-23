@@ -20,6 +20,9 @@
 | 80 | 32 | Header MAC | bytes | `SHA256(header[0:80])` |
 | 112 | 32 | Header HMAC | bytes | `HMAC-SHA256(MAC, HMAC_Key)` |
 
+Argon2 参数约束：`Time Cost >= 1`、`1 <= Parallelism <= 255`、
+`Memory Cost >= 8*Parallelism` 且为 `4*Parallelism` 的整数倍；不设上下限，能否解析由本机可用内存决定（见 `crypto-model.md`）。
+
 ### 加密体（密文）
 
 | 大小 | 字段 | 说明 |

@@ -42,21 +42,21 @@
           "byteSize": 4,
           "offset": 64,
           "endianness": "little",
-          "description": "Argon2id time_cost，uint32 LE"
+          "description": "Argon2id time_cost，uint32 LE；须 >= 1；无上限，能否解析由本机可用内存决定"
         },
         "argon2_memory_cost": {
           "type": "integer",
           "byteSize": 4,
           "offset": 68,
           "endianness": "little",
-          "description": "Argon2id memory_cost，uint32 LE"
+          "description": "Argon2id memory_cost（KiB），uint32 LE；须为 4*parallelism 的整数倍且 >= 8*parallelism（保证可精确执行）；无上限，能否解析由本机可用内存决定"
         },
         "argon2_parallelism": {
           "type": "integer",
           "byteSize": 4,
           "offset": 72,
           "endianness": "little",
-          "description": "Argon2id parallelism，uint32 LE"
+          "description": "Argon2id parallelism，uint32 LE；须在 1..255（argon2 threads 为 uint8）"
         },
         "compression_id": {
           "type": "integer",

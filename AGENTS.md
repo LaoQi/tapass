@@ -28,6 +28,11 @@ tapass/
 - **tools** — CLI 工具 + 核心加密库（vault），详见 `tools/AGENTS.md`
 - **tui** — TUI 客户端，通过 replace 引用 tools 的 vault，详见 `tui/AGENTS.md`
 
+## 运行平台
+
+- 平台矩阵与资源约束：`docs/platforms.md`
+- 嵌入式场景（可用内存 <32 MiB）是 KDF 参数与解析能力判断的设计依据
+
 ## 设计文档
 
 - V1 版本设计文档：`docs/v1/`

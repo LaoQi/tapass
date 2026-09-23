@@ -17,7 +17,7 @@ go run ./cmd/tapass-tui/                          # 运行
 cmd/tapass-tui/main.go     # 入口（可选数据库路径参数）
 internal/
   model/                    # 数据层（DB + 工具函数）
-    db.go                   # DB 核心：newDB/OpenDB/CreateDB(不写文件,dirty=true)/Save(清除dirty)/Query/QueryKeys/Get/Set/Delete/ChangePassword/Config/SetConfig/Dirty/OnChange/atomicWriteFile（已移除 SearchKeys）
+    db.go                   # DB 核心：newDB/OpenDB/CreateDB(不写文件,dirty=true)/Save(清除dirty)/Query/QueryKeys/Get/Set/Delete/ChangePassword/Rekey/Config/Dirty/OnChange/atomicWriteFile（已移除 SearchKeys/SetConfig）
     db_test.go              # DB 测试（含持久化测试）
     listing.go              # ListItem(Depth字段) + normalizePathPrefix/ParentPath/EntryPath
     listing_test.go
@@ -85,11 +85,12 @@ internal/
 - vim 导航：h=上一级，j/k=上下，l=打开/聚焦右栏；Tab=切换左右栏
 - 左栏选中属性(Depth=0)时 e/y/d 快捷键直接跳转右栏操作
 - 详情面板 detailModeAttrList：显示属性名+修改时间列表；detailModeDetail：标题=属性key，第一栏=修改时间，第二栏=属性值
+  - ⚠️ 已知缺陷（待修）：syncRightMsg 的 SetDetailMode 分支会覆盖 detailModeAttrList，属性列表实际不可达
 - TOTP 属性：解析 `otpauth://totp/` URI，支持 secret/digits/period/algorithm(SHA1/SHA256/SHA512)参数；计算逻辑在 TOTPDetailView.ComputeCode()，入口在 detail_totp.go
 - Steam TOTP：digits=S 时使用字符表 `23456789BCDFGHJKMNPQRTVWXY` 生成5位字符码
 - TOTP tick 通过 mainview 的 totpActive 标志 + Update 末尾检查启动；tick 到达时发送 refreshTOTPMsg 更新 TOTPDetailView
 - 列表超长时限制显示高度，选中项自动滚动跟随
-- dirty 标记：DB 内部维护 dirty 状态（单一真相源），Set/Delete/ChangePassword/SetConfig 后自动标记 dirty=true，Save 成功后清除；CreateDB 创建的 DB 初始 dirty=true（未落盘）；OpenDB 打开的 DB 初始 dirty=false（已从文件加载）；App 层通过 DB.Dirty() 读取状态发送 dirtyMsg 给 MainView
+- dirty 标记：DB 内部维护 dirty 状态（单一真相源），Set/Delete/ChangePassword/Rekey 后自动标记 dirty=true，Save 成功后清除；CreateDB 创建的 DB 初始 dirty=true（未落盘）；OpenDB 打开的 DB 初始 dirty=false（已从文件加载）；App 层通过 DB.Dirty() 读取状态发送 dirtyMsg 给 MainView
 - 编辑/删除属性后发送 AttrChangedMsg，修改密码成功后发送 PasswordChangedMsg
 - 退出确认：dirty 时按 q 进入 StatePendingQuit 状态，状态栏显示 `[y] save & quit  [n] quit without saving  [esc] cancel`
 - 保存并退出：y → 发 SaveAndQuitMsg → 保存成功后 VaultSavedMsg{QuitAfter:true} → tea.Quit
@@ -100,7 +101,9 @@ internal/
 - 删除功能在右栏面板开放，左栏选中属性时也可按 d 进入；删除仅能对属性（完整 key）操作
 - 删除需二次确认：按 `d` 进入 detailConfirmDelete 状态，再按 `d`/`y` 确认，其他键取消
 - DB 不暴露 vault：删除 `Vault()`/`Header()` 方法，外部禁止直接调用 vault
-- DB 新增 `Config()`/`SetConfig()` 接口：获取与设置 Config（含 Argon2 参数），对外不暴露 Header
+- DB 提供 `Config()`（只读）与 `Rekey(oldPassword, newPassword, Argon2Params)`（改 KDF 参数的唯一入口）
+- 已删除 `SetConfig`：只改头部参数而不重新派生会让 vault 永久无法打开；参数变更必须走 vault `Rekey`
+- KDF 参数与密钥一致性由 vault 层保证（`MarshalBinary` 不一致时返回 `ErrKDFParamsChanged`）
 - `NewDB` 私有化为 `newDB`：外部通过 `OpenDB`/`CreateDB` 获取 DB 实例；CreateDB 不立即写文件，需手动 Save 落盘
 - 状态栏 `[c] config` 始终显示，`[Ctrl+S] save` 仅 dirty 时显示
 - 欢迎页居中排版，TAPASS ASCII art 紫色显示

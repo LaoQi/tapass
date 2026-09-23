@@ -36,21 +36,29 @@ func (s *SubKeys) Zero() {
 }
 
 func zeroBytes(b []byte) {
+	if len(b) == 0 {
+		return
+	}
 	for i := range b {
 		b[i] = 0
 	}
 	runtime.KeepAlive(&b[0])
 }
 
-func DeriveMasterKey(password string, salt []byte, timeCost, memoryCost, parallelism uint32) []byte {
+// DeriveMasterKey 派生主密钥。参数必须已通过 ValidateArgon2Params：
+// parallelism 超过 uint8 会被截断成另一组参数，故此处不再做隐式转换。
+func DeriveMasterKey(password string, salt []byte, params Argon2Params) ([]byte, error) {
+	if err := ValidateArgon2Params(params); err != nil {
+		return nil, err
+	}
 	return argon2.IDKey(
 		[]byte(password),
 		salt,
-		timeCost,
-		memoryCost,
-		uint8(parallelism),
+		params.TimeCost,
+		params.MemoryCost,
+		uint8(params.Parallelism),
 		KeySize,
-	)
+	), nil
 }
 
 func DeriveSubKeys(masterKey, salt []byte) (*SubKeys, error) {

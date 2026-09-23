@@ -39,8 +39,8 @@ type Group struct {
 }
 
 type Entry struct {
-	UUID   string      `xml:"UUID"`
-	Times  EntryTimes  `xml:"Times"`
+	UUID    string      `xml:"UUID"`
+	Times   EntryTimes  `xml:"Times"`
 	Strings []ValueData `xml:"String"`
 }
 
@@ -64,15 +64,15 @@ type DeletedObjects struct {
 }
 
 type DeletedObject struct {
-	UUID        string `xml:"UUID"`
+	UUID         string `xml:"UUID"`
 	DeletionTime string `xml:"DeletionTime"`
 }
 
 type ImportStats struct {
-	Groups   int
-	Entries  int
-	Skipped  int
-	TOTP     int
+	Groups  int
+	Entries int
+	Skipped int
+	TOTP    int
 }
 
 func Import(xmlPath, tapPath, password string) (*ImportStats, error) {

@@ -85,15 +85,15 @@ func (m MainViewModel) syncRightFromLeft() MainViewModel {
 	if selected.Depth > 0 {
 		attrs := m.queryAttributes(selected.FullPath)
 		m.rightPanel = updateRight(m.rightPanel, syncRightMsg{
-			EntryPath:    "",
-			Attrs:        attrs,
+			EntryPath:     "",
+			Attrs:         attrs,
 			SetDetailMode: true,
 		})
 	} else {
 		entryPath := model.ParentPath(selected.FullPath)
 		m.rightPanel = updateRight(m.rightPanel, syncRightMsg{
-			EntryPath:    entryPath,
-			SelectedAttr: selected.Name,
+			EntryPath:     entryPath,
+			SelectedAttr:  selected.Name,
 			SetDetailMode: true,
 		})
 	}

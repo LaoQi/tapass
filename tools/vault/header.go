@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	Magic             = "TAPASS"
-	Version           = 1
-	HeaderSize        = 144
-	MACDataSize       = 80
-	CompressionNone   = 0
+	Magic              = "TAPASS"
+	Version            = 1
+	HeaderSize         = 144
+	MACDataSize        = 80
+	CompressionNone    = 0
 	CompressionDEFLATE = 1
 )
 
@@ -41,6 +41,13 @@ type Header struct {
 }
 
 func NewHeader(password string, argon2Params Argon2Params, compressionID uint8) (*Header, *SubKeys, error) {
+	if err := ValidateArgon2Params(argon2Params); err != nil {
+		return nil, nil, err
+	}
+	if err := CheckArgon2Resource(argon2Params); err != nil {
+		return nil, nil, err
+	}
+
 	h := &Header{
 		Version:       Version,
 		Argon2:        argon2Params,
@@ -55,7 +62,10 @@ func NewHeader(password string, argon2Params Argon2Params, compressionID uint8) 
 		return nil, nil, fmt.Errorf("generate nonce: %w", err)
 	}
 
-	masterKey := DeriveMasterKey(password, h.Salt[:], h.Argon2.TimeCost, h.Argon2.MemoryCost, h.Argon2.Parallelism)
+	masterKey, err := DeriveMasterKey(password, h.Salt[:], h.Argon2)
+	if err != nil {
+		return nil, nil, err
+	}
 	subKeys, err := DeriveSubKeys(masterKey, h.Salt[:])
 	zeroBytes(masterKey)
 	if err != nil {
@@ -148,6 +158,10 @@ func UnmarshalHeader(data []byte) (*Header, error) {
 		return nil, fmt.Errorf("read parallelism: %w", err)
 	}
 
+	if err := ValidateArgon2Params(h.Argon2); err != nil {
+		return nil, err
+	}
+
 	if err := binary.Read(r, binary.LittleEndian, &h.CompressionID); err != nil {
 		return nil, fmt.Errorf("read compression id: %w", err)
 	}
@@ -176,7 +190,17 @@ func (h *Header) VerifyHMAC(hmacKey []byte) bool {
 }
 
 func (h *Header) DeriveKeys(password string) (*SubKeys, error) {
-	masterKey := DeriveMasterKey(password, h.Salt[:], h.Argon2.TimeCost, h.Argon2.MemoryCost, h.Argon2.Parallelism)
+	if err := ValidateArgon2Params(h.Argon2); err != nil {
+		return nil, err
+	}
+	if err := CheckArgon2Resource(h.Argon2); err != nil {
+		return nil, err
+	}
+
+	masterKey, err := DeriveMasterKey(password, h.Salt[:], h.Argon2)
+	if err != nil {
+		return nil, err
+	}
 	sk, err := DeriveSubKeys(masterKey, h.Salt[:])
 	zeroBytes(masterKey)
 	return sk, err

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/term"
 	"github.com/LaoQi/tapass/tools/vault"
 	"github.com/LaoQi/tapass/tools/version"
+	"golang.org/x/term"
 )
 
 var out io.Writer = os.Stderr

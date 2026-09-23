@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
-	"github.com/atotto/clipboard"
+	"charm.land/bubbletea/v2"
 	"github.com/LaoQi/tapass/tui/internal/model"
+	"github.com/atotto/clipboard"
 )
 
 type detailState int
@@ -268,22 +268,22 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case detailView:
 			switch msg.String() {
-		case "e":
-			if m.selectedEntry != nil {
-				m.state = detailEditKV
-				m.editMode = editModeEdit
-				m.editKey = m.entryPath + "/" + m.selectedAttr
-				m.keyInput.SetValue(m.editKey)
-				m.keyInput.CursorEnd()
-				m.keyInput.Blur()
-				m.valueArea.SetValue(string(m.selectedEntry.Value))
-				m.valueArea.Focus()
-				m.valueArea.CursorEnd()
-				m.err = nil
-				m.copySuccess = false
-				m = m.resizeEditor()
-				return m, nil
-			}
+			case "e":
+				if m.selectedEntry != nil {
+					m.state = detailEditKV
+					m.editMode = editModeEdit
+					m.editKey = m.entryPath + "/" + m.selectedAttr
+					m.keyInput.SetValue(m.editKey)
+					m.keyInput.CursorEnd()
+					m.keyInput.Blur()
+					m.valueArea.SetValue(string(m.selectedEntry.Value))
+					m.valueArea.Focus()
+					m.valueArea.CursorEnd()
+					m.err = nil
+					m.copySuccess = false
+					m = m.resizeEditor()
+					return m, nil
+				}
 			case "y":
 				if m.selectedEntry != nil {
 					var copyText string

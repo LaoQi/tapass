@@ -246,12 +246,19 @@ func TestConfig(t *testing.T) {
 	}
 }
 
-func TestSetConfig(t *testing.T) {
-	v := &vault.Vault{
-		Hdr:     &vault.Header{},
-		SubKeys: &vault.SubKeys{},
+// 参数变更必须走 Rekey（重新派生），改参后库仍可被正常打开。
+func TestRekey(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/rekey.tap"
+
+	db, err := CreateDB(path, "old-password")
+	if err != nil {
+		t.Fatalf("CreateDB failed: %v", err)
 	}
-	db := newDB(v, "")
+	db.Set("/grp/e/PASSWD", []byte("secret"))
+	if err := db.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
 
 	var received Event
 	db.OnChange(func(evt Event) []tea.Cmd {
@@ -259,7 +266,14 @@ func TestSetConfig(t *testing.T) {
 		return nil
 	})
 
-	cmds := db.SetConfig(Config{Argon2: Argon2Params{TimeCost: 10, MemoryCost: 32768, Parallelism: 2}})
+	cmds, err := db.Rekey("old-password", "new-password", Argon2Params{
+		TimeCost:    2,
+		MemoryCost:  8192,
+		Parallelism: 1,
+	})
+	if err != nil {
+		t.Fatalf("Rekey failed: %v", err)
+	}
 	if len(cmds) != 0 {
 		t.Errorf("expected 0 cmds from listener returning nil, got %d", len(cmds))
 	}
@@ -267,15 +281,47 @@ func TestSetConfig(t *testing.T) {
 		t.Errorf("expected EventConfigChanged, got %d", received.Type)
 	}
 
-	cfg := db.Config()
-	if cfg.Argon2.TimeCost != 10 {
-		t.Errorf("expected TimeCost 10, got %d", cfg.Argon2.TimeCost)
+	if err := db.Save(); err != nil {
+		t.Fatalf("Save after rekey failed: %v", err)
 	}
-	if cfg.Argon2.MemoryCost != 32768 {
-		t.Errorf("expected MemoryCost 32768, got %d", cfg.Argon2.MemoryCost)
+
+	// 新密码 + 新参数可打开，旧密码不可打开
+	reopened, err := OpenDB(path, "new-password")
+	if err != nil {
+		t.Fatalf("OpenDB with new password failed: %v", err)
 	}
-	if cfg.Argon2.Parallelism != 2 {
-		t.Errorf("expected Parallelism 2, got %d", cfg.Argon2.Parallelism)
+	if _, err := OpenDB(path, "old-password"); err == nil {
+		t.Error("expected old password to fail after rekey")
+	}
+
+	cfg := reopened.Config()
+	if cfg.Argon2.TimeCost != 2 || cfg.Argon2.MemoryCost != 8192 || cfg.Argon2.Parallelism != 1 {
+		t.Errorf("unexpected params after rekey: %+v", cfg.Argon2)
+	}
+
+	e, ok := reopened.Get("/grp/e/PASSWD")
+	if !ok || string(e.Value) != "secret" {
+		t.Errorf("entry lost after rekey: %v %q", ok, string(e.Value))
+	}
+}
+
+// 参数非法（无法精确执行）时 Rekey 必须失败且不改动库。
+func TestRekeyRejectsInvalidParams(t *testing.T) {
+	dir := t.TempDir()
+	db, err := CreateDB(dir+"/bad.tap", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// memory 不是 4*parallelism 的倍数 → 本实现无法精确执行
+	if _, err := db.Rekey("pw", "pw", Argon2Params{TimeCost: 2, MemoryCost: 1002, Parallelism: 2}); err == nil {
+		t.Error("expected error for non lane-aligned memory")
+	}
+	if _, err := db.Rekey("pw", "pw", Argon2Params{TimeCost: 0, MemoryCost: 8192, Parallelism: 1}); err == nil {
+		t.Error("expected error for time cost 0")
+	}
+	// 超出本机能力（约 4 TiB）→ 必须被拒绝而不是 OOM
+	if _, err := db.Rekey("pw", "pw", Argon2Params{TimeCost: 1, MemoryCost: 0xFFFFFF00, Parallelism: 1}); err == nil {
+		t.Error("expected error for params exceeding local capability")
 	}
 }
 

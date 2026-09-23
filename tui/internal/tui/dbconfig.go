@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/LaoQi/tapass/tui/internal/model"
 )
@@ -20,16 +20,16 @@ const (
 )
 
 type DBConfigModel struct {
-	db             *model.DB
-	dbPath         string
-	state          dbConfigState
-	oldPassword    textinput.Model
-	newPassword    textinput.Model
+	db              *model.DB
+	dbPath          string
+	state           dbConfigState
+	oldPassword     textinput.Model
+	newPassword     textinput.Model
 	confirmPassword textinput.Model
-	err            error
-	success        bool
-	width          int
-	height         int
+	err             error
+	success         bool
+	width           int
+	height          int
 }
 
 func NewDBConfigModel(db *model.DB, dbPath string) DBConfigModel {
@@ -49,11 +49,11 @@ func NewDBConfigModel(db *model.DB, dbPath string) DBConfigModel {
 	confirmPassword.CharLimit = 256
 
 	return DBConfigModel{
-		db:             db,
-		dbPath:         dbPath,
-		state:          dbConfigMenu,
-		oldPassword:    oldPassword,
-		newPassword:    newPassword,
+		db:              db,
+		dbPath:          dbPath,
+		state:           dbConfigMenu,
+		oldPassword:     oldPassword,
+		newPassword:     newPassword,
 		confirmPassword: confirmPassword,
 	}
 }
@@ -217,5 +217,3 @@ func (m DBConfigModel) View() tea.View {
 		Height(height).
 		Render(b.String()))
 }
-
-

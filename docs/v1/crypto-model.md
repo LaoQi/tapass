@@ -12,6 +12,27 @@ V1 采用 Argon2id 密钥派生 + HKDF 子密钥拆分 + zlib/DEFLATE 压缩 + X
 - Salt：头部存储的 32 字节随机盐值
 - 参数：由头部 Time Cost / Memory Cost / Parallelism 字段指定
 
+### 参数约束与可解析性
+
+Argon2id 参数（Time Cost / Memory Cost / Parallelism）存储在明文头部，任何设备打开时按声明参数派生密钥，
+因此参数必须可被**精确执行**，否则不同实现实际使用的参数不同、派生出的密钥不同，表现为误导性的"密码错误"。
+
+必须满足（否则拒绝解析，返回 invalid kdf params）：
+
+- `Time Cost >= 1`
+- `1 <= Parallelism <= 255`（argon2 的 threads 为 uint8，超出即无法表达）
+- `Memory Cost >= 8 * Parallelism`，且 `Memory Cost` 是 `4 * Parallelism` 的整数倍
+  （argon2 按 `4 * parallelism` 个 lane 划分并把内存向下对齐）
+
+**不设参数上下限**：能否解析取决于本机可用内存（峰值内存 ≈ Memory Cost，另需运行时开销）。
+内存不足时返回明确错误（需要 X MiB / 可用 Y MiB），不得 OOM 或 panic。
+内存探测：Linux 读 `/proc/meminfo` 的 `MemAvailable`；其他平台暂不探测。详见 `docs/platforms.md`。
+
+### KDF 参数变更
+
+参数变更**必须重新派生密钥**（新 Salt + 新 Nonce + 按新参数重新派生 + 重新加密），
+流程与改密相同（`Rekey`），且必须提供当前主密码。仅修改头部参数而不重新派生会导致 vault 永久无法打开。
+
 ### HKDF 子密钥拆分
 
 Master Key 通过 HKDF-SHA256 拆分为两路子密钥：

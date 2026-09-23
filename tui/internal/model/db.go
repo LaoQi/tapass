@@ -164,7 +164,7 @@ func (db *DB) ChangePassword(old, new string) ([]tea.Cmd, error) {
 }
 
 func (db *DB) Config() Config {
-	a := db.vault.Hdr.Argon2
+	a := db.vault.Params()
 	return Config{Argon2: Argon2Params{
 		TimeCost:    a.TimeCost,
 		MemoryCost:  a.MemoryCost,
@@ -172,14 +172,19 @@ func (db *DB) Config() Config {
 	}}
 }
 
-func (db *DB) SetConfig(c Config) []tea.Cmd {
-	db.vault.Hdr.Argon2 = vault.Argon2Params{
-		TimeCost:    c.Argon2.TimeCost,
-		MemoryCost:  c.Argon2.MemoryCost,
-		Parallelism: c.Argon2.Parallelism,
+// Rekey 按新的 KDF 参数重写 vault（新 salt/nonce、重新派生、重新加密）。
+// 必须提供当前主密码：新密钥需由密码按新参数重新派生。
+// 参数变更只能走这里；直接改头部参数会让库无法再被打开。
+func (db *DB) Rekey(oldPassword, newPassword string, a Argon2Params) ([]tea.Cmd, error) {
+	if _, err := db.vault.Rekey(oldPassword, newPassword, vault.Argon2Params{
+		TimeCost:    a.TimeCost,
+		MemoryCost:  a.MemoryCost,
+		Parallelism: a.Parallelism,
+	}); err != nil {
+		return nil, err
 	}
 	db.dirty = true
-	return db.emit(Event{Type: EventConfigChanged})
+	return db.emit(Event{Type: EventConfigChanged}), nil
 }
 
 func (db *DB) OnChange(fn Listener) func() {
