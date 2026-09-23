@@ -147,6 +147,8 @@ tapass-cli <vault-file>
 
 ### 导入工具
 
+- 同名条目（KeePass 允许）导入时按路径去重：同名追加 ` (2)`、` (3)`…，不会互相覆盖
+
 ```
 tapass-import <input.xml|input.kdbx> <output.tap>
 ```

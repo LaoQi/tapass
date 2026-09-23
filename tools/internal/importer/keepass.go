@@ -102,7 +102,7 @@ func Import(xmlPath, tapPath, password string) (*ImportStats, error) {
 
 	stats := &ImportStats{}
 	recycleBinUUID := strings.TrimSpace(kf.Meta.RecycleBinUUID)
-	walkGroups(v, &kf.Root.Group, "", recycleBinUUID, true, stats)
+	walkGroups(v, &kf.Root.Group, "", recycleBinUUID, true, stats, make(map[string]bool))
 
 	v.Sort()
 	outData, err := v.MarshalBinary()
@@ -116,7 +116,7 @@ func Import(xmlPath, tapPath, password string) (*ImportStats, error) {
 	return stats, nil
 }
 
-func walkGroups(v *vault.Vault, g *Group, parentPath, recycleBinUUID string, isRoot bool, stats *ImportStats) {
+func walkGroups(v *vault.Vault, g *Group, parentPath, recycleBinUUID string, isRoot bool, stats *ImportStats, used map[string]bool) {
 	if recycleBinUUID != "" && strings.TrimSpace(g.UUID) == recycleBinUUID {
 		stats.Skipped++
 		return
@@ -136,15 +136,15 @@ func walkGroups(v *vault.Vault, g *Group, parentPath, recycleBinUUID string, isR
 	}
 
 	for i := range g.Entries {
-		importEntry(v, &g.Entries[i], groupPath, stats)
+		importEntry(v, &g.Entries[i], groupPath, stats, used)
 	}
 
 	for i := range g.Groups {
-		walkGroups(v, &g.Groups[i], groupPath, recycleBinUUID, false, stats)
+		walkGroups(v, &g.Groups[i], groupPath, recycleBinUUID, false, stats, used)
 	}
 }
 
-func importEntry(v *vault.Vault, e *Entry, groupPath string, stats *ImportStats) {
+func importEntry(v *vault.Vault, e *Entry, groupPath string, stats *ImportStats, used map[string]bool) {
 	title := ""
 	var totpFields map[string]string
 	var totpSeed string
@@ -192,6 +192,7 @@ func importEntry(v *vault.Vault, e *Entry, groupPath string, stats *ImportStats)
 	if groupPath == "" {
 		entryPath = sanitizeName(title)
 	}
+	entryPath = uniqueEntryPath(used, entryPath)
 
 	ts := parseKeePassTimestamp(e.Times.LastModificationTime)
 
@@ -353,6 +354,22 @@ func parseKeePassTimestamp(s string) uint64 {
 
 func urlEncode(s string) string {
 	return url.PathEscape(s)
+}
+
+// uniqueEntryPath 保证导入的同名条目不会互相覆盖：同名时追加 " (2)"、" (3)"…
+// KeePass 允许同名条目，直接拼接路径会把它们静默合并成一条（字段混杂、数据丢失）。
+func uniqueEntryPath(used map[string]bool, path string) string {
+	if !used[path] {
+		used[path] = true
+		return path
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s (%d)", path, i)
+		if !used[candidate] {
+			used[candidate] = true
+			return candidate
+		}
+	}
 }
 
 func sanitizeName(name string) string {

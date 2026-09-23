@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   改为按幸存条目在原切片中的位置排序（确定性）
 - vault `Sort()` 改为稳定排序：同一时间戳（同毫秒多次写入 / 导入的历史时间戳）的条目
   不得被重排，否则"同 key 同时间戳"记录可能解析出先写入的旧值
+- KeePass 导入：同组同名条目被静默合并成一条（字段混杂、数据丢失）——
+  实测后一条会完全覆盖前一条的属性。导入时按路径去重，同名追加 " (2)"、" (3)"…
 - 新建/导入时目标文件已存在会被直接覆盖（数据丢失）：
   TUI 新建 vault 增加覆盖确认（`WelcomeConfirmOverwrite`，`y` 覆盖 / `n`、`esc` 返回），
   并校验空路径与目录路径；CLI `create` 默认拒绝覆盖（`create -f` 显式强制）；

@@ -867,3 +867,79 @@ func TestImportRefusesExistingOutput(t *testing.T) {
 		t.Errorf("unexpected leftover tmp file")
 	}
 }
+
+const testXMLDuplicateTitles = `<?xml version="1.0" encoding="utf-8"?>
+<KeePassFile>
+  <Meta>
+    <Generator>KeePass</Generator>
+  </Meta>
+  <Root>
+    <Group>
+      <UUID>ROOT==</UUID>
+      <Name>Root</Name>
+      <Group>
+        <UUID>G1==</UUID>
+        <Name>工作</Name>
+        <Entry>
+          <UUID>E1==</UUID>
+          <Times><LastModificationTime>2024-06-15T10:30:00Z</LastModificationTime></Times>
+          <String><Key>Title</Key><Value>邮箱</Value></String>
+          <String><Key>UserName</Key><Value>first@company.com</Value></String>
+          <String><Key>Password</Key><Value>first-secret</Value></String>
+        </Entry>
+        <Entry>
+          <UUID>E2==</UUID>
+          <Times><LastModificationTime>2024-06-15T10:30:00Z</LastModificationTime></Times>
+          <String><Key>Title</Key><Value>邮箱</Value></String>
+          <String><Key>UserName</Key><Value>second@company.com</Value></String>
+          <String><Key>Password</Key><Value>second-secret</Value></String>
+        </Entry>
+      </Group>
+    </Group>
+  </Root>
+</KeePassFile>`
+
+// 回归：同名条目必须各自独立成条，不能被静默合并成一条（字段混杂、数据丢失）。
+func TestImportDuplicateTitlesStaySeparate(t *testing.T) {
+	dir := t.TempDir()
+	xmlPath := filepath.Join(dir, "dup.xml")
+	tapPath := filepath.Join(dir, "dup.tap")
+
+	if err := os.WriteFile(xmlPath, []byte(testXMLDuplicateTitles), 0644); err != nil {
+		t.Fatalf("write xml: %v", err)
+	}
+
+	stats, err := Import(xmlPath, tapPath, "testpassword")
+	if err != nil {
+		t.Fatalf("Import failed: %v", err)
+	}
+	if stats.Entries != 2 {
+		t.Errorf("expected 2 entries, got %d", stats.Entries)
+	}
+
+	data, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := vault.Open(data, "testpassword")
+	if err != nil {
+		t.Fatalf("open imported vault: %v", err)
+	}
+
+	first, ok := v.Get("/工作/邮箱/PASSWD")
+	if !ok || string(first) != "first-secret" {
+		t.Errorf("first entry: ok=%v value=%q", ok, first)
+	}
+	second, ok := v.Get("/工作/邮箱 (2)/PASSWD")
+	if !ok || string(second) != "second-secret" {
+		t.Errorf("second entry: ok=%v value=%q", ok, second)
+	}
+
+	// 不得互相污染（同名合并的典型症状：字段混杂）
+	if u, ok := v.Get("/工作/邮箱/username"); !ok || string(u) != "first@company.com" {
+		t.Errorf("first entry username polluted: ok=%v value=%q", ok, u)
+	}
+	if u, ok := v.Get("/工作/邮箱 (2)/username"); !ok || string(u) != "second@company.com" {
+		t.Errorf("second entry username polluted: ok=%v value=%q", ok, u)
+	}
+}

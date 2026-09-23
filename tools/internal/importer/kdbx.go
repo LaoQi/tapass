@@ -50,7 +50,7 @@ func ImportKDBX(kdbxPath, tapPath, kdbxPassword, tapPassword string) (*ImportSta
 
 	stats := &ImportStats{}
 	recycleBinUUID := strings.TrimSpace(kf.Meta.RecycleBinUUID)
-	walkGroups(v, &kf.Root.Group, "", recycleBinUUID, true, stats)
+	walkGroups(v, &kf.Root.Group, "", recycleBinUUID, true, stats, make(map[string]bool))
 
 	v.Sort()
 	outData, err := v.MarshalBinary()
