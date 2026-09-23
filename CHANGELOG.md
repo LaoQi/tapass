@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [dev]
 
+### Added
+
+- 条目详情编辑器内的密码生成器（`Ctrl+G`）：长度/字符类别/排除易混淆字符，`crypto/rand` 安全随机，
+  保证每类启用字符至少出现一次，`enter` 应用到值区域
+- `docs/platforms.md`：运行平台矩阵与资源约束（含可用内存 <32 MiB 的嵌入式设备场景）
+- KDF 参数能力判断（Linux 读 `/proc/meminfo` 的 `MemAvailable`），不设参数上下限
+- `tui/internal/tui` 测试文件：右栏意图路由（mainview_test.go）、错误展示（app_test.go）、
+  新建覆盖确认与路径校验（welcome_test.go）回归
+- `tui/internal/model/bench_test.go`：导航/查询基准（防性能回归）
+- CI 门禁（`.github/workflows/ci.yml`）：gofmt / vet / test + windows、arm64 交叉编译冒烟
+
+### Changed
+
+- 重构搜索为基于原始 key 的过滤机制：面板存储 `rawKeys`，搜索过滤作用于原始 key 后再聚合生成列表项
+- `DB` 增加解析视图缓存（`resolvedIndex`/`invalidateResolved`）：`Query`/`QueryKeys`/`Get` 不再每次调用
+  全量 `ResolveLatest`。此前 TUI 每次按键是 O(n²)，2000 条时单次导航约 117 ms；现在约 0.16 ms
+  （`Get` 1.13 ms → 4.5 µs）
+- 设计文档与实现对齐：压缩为原始 flate 流（RFC 1951），非 zlib 封装
+
 ### Fixed
 
 - KDF 参数变更导致 vault 永久无法打开：新增 `vault.Rekey`（新 salt/nonce + 重新派生 + 重新加密 + 自校验），
@@ -35,23 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TUI 复制假成功：忽略了 `clipboard.WriteAll` 的错误、无条件显示"已复制到剪贴板"，
   现改为显示"复制失败: <原因>"（5 秒后清除）
 - TUI 右栏属性列表不可达：`syncRightMsg` 的 `SetDetailMode` 分支覆盖了 `detailModeAttrList`，
-  选中分组时右栏显示空详情而非属性列表。已拆分显式意图消息（`showAttrListMsg`/`showAttrDetailMsg`/`clearDetailMsg`），
-  并补 tui 视图层回归测试
-
-### Added
-
-- `docs/platforms.md`：运行平台矩阵与资源约束（含可用内存 <32 MiB 的嵌入式设备场景）
-- `tui/internal/tui` 测试文件：右栏意图路由（mainview_test.go）、错误展示（app_test.go）、
-  新建覆盖确认与路径校验（welcome_test.go）回归
-- KDF 参数能力判断（Linux 读 `/proc/meminfo` 的 `MemAvailable`），不设参数上下限
-
-### Changed
-
-- `DB` 增加解析视图缓存（`resolvedIndex`/`invalidateResolved`）：`Query`/`QueryKeys`/`Get` 不再每次调用
-  全量 `ResolveLatest`。此前 TUI 每次按键是 O(n²)，2000 条时单次导航约 117 ms；
-  现在约 0.16 ms（`Get` 1.13 ms → 4.5 µs），并新增 `bench_test.go` 防回归
-
-- 重构搜索为基于原始 key 的过滤机制：面板存储 `rawKeys`，搜索过滤作用于原始 key 后再聚合生成列表项
+  选中分组时右栏显示空详情而非属性列表。已拆分显式意图消息（`showAttrListMsg`/`showAttrDetailMsg`/`clearDetailMsg`）
 
 ### Removed
 

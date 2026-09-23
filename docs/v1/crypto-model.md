@@ -2,7 +2,7 @@
 
 ## 概述
 
-V1 采用 Argon2id 密钥派生 + HKDF 子密钥拆分 + zlib/DEFLATE 压缩 + XChaCha20-Poly1305 AEAD 加密方案。
+V1 采用 Argon2id 密钥派生 + HKDF 子密钥拆分 + DEFLATE（原始 flate 流）压缩 + XChaCha20-Poly1305 AEAD 加密方案。
 
 ## 密钥派生
 
@@ -66,16 +66,17 @@ Master Key 通过 HKDF-SHA256 拆分为两路子密钥：
 ### 加密流程
 
 ```
-明文数据段 → zlib/DEFLATE 压缩 → XChaCha20-Poly1305 加密 → 密文
+明文数据段 → DEFLATE 压缩（原始 flate 流）→ XChaCha20-Poly1305 加密 → 密文
 ```
 
 ### 解密流程
 
 ```
-密文 → XChaCha20-Poly1305 解密 → zlib/DEFLATE 解压 → 明文数据段
+密文 → XChaCha20-Poly1305 解密 → DEFLATE 解压（原始 flate 流）→ 明文数据段
 ```
 
 - 压缩在加密之前执行（密文不可压缩）
+- 压缩流为**原始 flate（RFC 1951）**，不带 zlib 头与校验尾（RFC 1950）：与 `compress/flate` 一致，不使用 zlib 封装
 - Compression ID = 0 时跳过压缩/解压步骤；= 1 时使用 DEFLATE
 - Compression ID 为其他值时**拒绝解析**（返回 unsupported compression id），
   不得静默按"无压缩"处理（会解出错误的数据段内容）

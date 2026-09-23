@@ -70,7 +70,7 @@ internal/
 - Key 路径格式：`/group/subgroup/entry/ATTR_NAME`，最后一段为属性名
 - Node.ID 是路径标识符兼显示名，无 Name 字段
 - 分组规则：有子节点自动推断为组
-- 压缩使用 flate 裸 DEFLATE 流（非 zlib），与设计文档 "zlib/DEFLATE" 描述不同，为本项目明确选择
+- 压缩使用 flate 裸 DEFLATE 流（RFC 1951，非 zlib 封装），设计文档已同步该描述
 - Node.Path 统一以 `/` 开头，与 vault key 前缀一致
 - 新建条目只创建路径前缀，用户在详情页添加属性
 - 属性编辑先统一文本，PASSWD/TOTP/SSH 专属控件后续迭代

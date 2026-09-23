@@ -65,7 +65,7 @@
           "enum": [0, 1],
           "enumDescriptions": {
             "0": "无压缩",
-            "1": "DEFLATE (zlib)"
+            "1": "DEFLATE（原始 flate 流，非 zlib 封装）"
           },
           "description": "压缩算法标识，uint8；只允许 0/1，其他值实现必须拒绝解析"
         },
