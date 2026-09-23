@@ -35,31 +35,43 @@ Argon2id 参数（Time Cost / Memory Cost / Parallelism）存储在明文头部�
 
 ### HKDF 子密钥拆分
 
-Master Key 通过 HKDF-SHA256 拆分为两路子密钥：
+Master Key 通过 HKDF-SHA256（RFC 5869）拆分为两路子密钥，**严格按以下 5 步执行**。
+注意第 3 步的第二次 Extract 不可省略：若直接对第 1 步的 PRK 做两次 Expand
+（即"一次 Extract + 按 info 两次 Expand"），会得到**完全不同的子密钥**，实现间无法互通。
 
-- HKDF-Extract：Salt 复用头部 Salt
-- HKDF-Expand：输出 64 字节
-
-| Info | 输出 | 用途 |
+| 步骤 | 操作 | 说明 |
 |------|------|------|
-| `tapass-v1-hmac` | HMAC Key (32B) | Header HMAC 计算，验证主密码 |
-| `tapass-v1-enc` | Encrypt Key (32B) | XChaCha20-Poly1305 加解密 |
+| 1 | `prk1 = HKDF-Extract(salt = 头部 Salt, IKM = Master Key)` | salt 为头部 32 字节随机盐 |
+| 2 | `okm64 = HKDF-Expand(prk1, info = ""（空）, L = 64)` | 中间密钥材料 |
+| 3 | `prk2 = HKDF-Extract(salt = 32 字节全零, IKM = okm64)` | salt 为 hash 长度（32B）全零 |
+| 4 | `HMAC Key = HKDF-Expand(prk2, info = "tapass-v1-hmac", L = 32)` | 用于 Header HMAC（主密码验证） |
+| 5 | `Encrypt Key = HKDF-Expand(prk2, info = "tapass-v1-enc", L = 32)` | 用于 XChaCha20-Poly1305 |
 
-### 派生流程
+- `info` 只参与 HKDF-Expand（Extract 不使用 info），因此第 4、5 步共用同一个 `prk2`
+- 第 3 步的"32 字节全零 salt"等价于 Go `hkdf.New(sha256.New, okm64, nil, info)` 内部的 Extract 行为
+- info 字符串按 ASCII 字节直接使用，不做编码转换
+
+派生流程（编号同上）：
 
 ```
-主密码 + Salt → Argon2id(32B) → Master Key
-                                    │
-                              HKDF-SHA256(Salt)
-                                    │
-                              HKDF-Expand(64B)
-                              ┌────┴────┐
-                              ▼         ▼
-                    info="tapass-v1-hmac"  info="tapass-v1-enc"
-                         │                     │
-                         ▼                     ▼
-                  HMAC Key (32B)        Encrypt Key (32B)
+主密码 + Salt ──Argon2id(32B)──▶ Master Key
+                                    │ ① Extract(salt = Salt)
+                                    ▼
+                                  prk1
+                                    │ ② Expand(info = "", L = 64)
+                                    ▼
+                                  okm64
+                                    │ ③ Extract(salt = 0x00 × 32)
+                                    ▼
+                                  prk2
+                        ┌───────────┴───────────┐
+     ④ Expand(info="tapass-v1-hmac")   ⑤ Expand(info="tapass-v1-enc")
+                        ▼                       ▼
+                HMAC Key (32B)          Encrypt Key (32B)
 ```
+
+一致性校验：上述每一步的固定结果都记录在 `tools/vault/testdata/format_v1_vectors.json`，
+并可由 `python3 docs/v1/verify_format_v1.py`（纯 Python 手写实现，不依赖参考实现代码）复算验证。
 
 ## 数据处理流程
 
@@ -77,6 +89,8 @@ Master Key 通过 HKDF-SHA256 拆分为两路子密钥：
 
 - 压缩在加密之前执行（密文不可压缩）
 - 压缩流为**原始 flate（RFC 1951）**，不带 zlib 头与校验尾（RFC 1950）：与 `compress/flate` 一致，不使用 zlib 封装
+- 压缩流**不要求跨实现逐字节一致**（不同压缩器/压缩级别的输出不同）：只要求解压还原后与原始数据段字节一致。
+  测试向量因此固定"解压后的数据段字节"，而不固定压缩流字节
 - Compression ID = 0 时跳过压缩/解压步骤；= 1 时使用 DEFLATE
 - Compression ID 为其他值时**拒绝解析**（返回 unsupported compression id），
   不得静默按"无压缩"处理（会解出错误的数据段内容）

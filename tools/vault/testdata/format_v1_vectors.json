@@ -1,0 +1,47 @@
+{
+  "description": "tapass v1 格式一致性测试向量：固定 salt/nonce/参数，供任意平台实现校验（参考实现为 Go 版 tools/vault）",
+  "spec": "docs/v1/data-structures.md, docs/v1/crypto-model.md",
+  "inputs": {
+    "password_utf8": "correct horse battery staple",
+    "salt_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "nonce_hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7",
+    "argon2": {
+      "type": "Argon2id (RFC 9106, 版本 0x13)",
+      "time_cost": 6,
+      "memory_cost_kib": 16384,
+      "parallelism": 1,
+      "output_bytes": 32
+    },
+    "hkdf": {
+      "hash": "SHA-256",
+      "steps": [
+        "prk1 = HKDF-Extract(salt = salt, IKM = master_key)",
+        "okm64 = HKDF-Expand(prk1, info = \"\", L = 64)",
+        "prk2 = HKDF-Extract(salt = 32 字节全零, IKM = okm64)",
+        "hmac_key = HKDF-Expand(prk2, info = \"tapass-v1-hmac\", L = 32)",
+        "encrypt_key = HKDF-Expand(prk2, info = \"tapass-v1-enc\", L = 32)"
+      ]
+    },
+    "entries": [
+      {"type": 1, "key": "/vault/entry/PASSWD", "value_utf8": "secret-password", "timestamp": 1700000000000},
+      {"type": 2, "key": "/vault/entry/ssh_key", "value_hex": "01020304", "timestamp": 1700000001000},
+      {"type": 0, "key": "/vault/deleted", "timestamp": 1700000002000}
+    ]
+  },
+  "expected": {
+    "master_key_hex": "f64f6b4c8d0a70448f79f6fd368a1c4950323622513d0733c4f1764c74911889",
+    "hkdf_okm64_hex": "73d3d1eb6e09047c412e09c5ae1bbc379cf0fcec35889950ad4bdf7d5f15321f72e870053c8b46d1644d82567b131c2933826e54b5a913064b24df4c5dc662e3",
+    "hkdf_prk2_hex": "de627c798e685951f7123426292c46522a27e5bc5e6d42e9fc7b5300e80ab601",
+    "hmac_key_hex": "ea2e5b05903b802ca08a829a4d73b8f5c7a146f8745170f74659c24a9f97f079",
+    "encrypt_key_hex": "c39aeba8e124ec903988193e59b92406755b782946d9871ef14cb93391586e05",
+    "header_hex": "5441504153530100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b706000000004000000100000001000000637235d3d0d1bae688078a007b1eae7dc29d9733f5d74db5cfd824918b4c555313a5fc56c61a3dd050676f7dfedfca74eb94ab48832563ad30a0723fb85d4a3e",
+    "data_segment_hex": "0068e5cf8b0100000113002f7661756c742f656e7472792f5041535357440f0000007365637265742d70617373776f7264e86be5cf8b0100000214002f7661756c742f656e7472792f7373685f6b65790400000001020304d06fe5cf8b010000000e002f7661756c742f64656c6574656400000000",
+    "aead_ciphertext_hex": "60badaced21fa35367f0a0e295cea242e878a87edc8e1245e6c8593a1f41e4b137128b65ca9585fd9a5a02faa50ceaacaaff308cecbef5e49ce6c63b8671a0ab2eef6175b441a6981525af4b4ea69024ce3bad3bef335f60f80151e3c2d54a13d3a2474b16ae91f61607551fcae209a93da2545ab5ad52f96097e130d0e23bdfbc34714298"
+  },
+  "notes": [
+    "header_hex 为固定 salt/nonce 下的完整 144 字节头部；Header MAC = SHA256(header[0:80])，Header HMAC = HMAC-SHA256(MAC, hmac_key)。",
+    "aead_ciphertext_hex = XChaCha20-Poly1305(encrypt_key, nonce, data_segment_hex, AAD = 空)，即跳过压缩后的密文体（含 16 字节 Poly1305 tag）。",
+    "DEFLATE 压缩流不要求跨实现逐字节一致：只要求解压还原后与 data_segment_hex 一致（不同压缩器/级别输出不同）。",
+    "条目解析语义：同 key 取时间戳最新（相同时间戳取文件中靠后）的一条；type=0 视为删除。"
+  ]
+}

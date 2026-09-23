@@ -40,6 +40,8 @@ tapass/
 - 数据结构 JSON Schema：`docs/v1/schema.json`
 - 加密模型：`docs/v1/crypto-model.md`
 - 版本概述：`docs/v1/overview.md`
+- 格式一致性测试向量：`tools/vault/testdata/format_v1_vectors.json`
+- 独立校验脚本（不依赖参考实现）：`python3 docs/v1/verify_format_v1.py`
 
 ## 变更日志
 
@@ -51,3 +53,5 @@ tapass/
 1. 读取数据结构时优先解析 `docs/v1/schema.json`，若为空则回退读取 `docs/v1/data-structures.md`
 2. 不得在占位文件中填充自行推测的内容
 3. 数据结构由项目负责人规划，Agent 不自行发挥
+4. 本项目价值在于**设计与算法一致性**（其他平台可能换技术栈重写）：改动格式或密钥派生逻辑时，
+   必须同步更新 `format_v1_vectors.json` 并保证 `docs/v1/verify_format_v1.py` 通过；规范与实现不一致按缺陷处理

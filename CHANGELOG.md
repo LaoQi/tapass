@@ -16,10 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tui/internal/tui` 测试文件：右栏意图路由（mainview_test.go）、错误展示（app_test.go）、
   新建覆盖确认与路径校验（welcome_test.go）回归
 - `tui/internal/model/bench_test.go`：导航/查询基准（防性能回归）
-- CI 门禁（`.github/workflows/ci.yml`）：gofmt / vet / test + windows、arm64 交叉编译冒烟
+- CI 门禁（`.github/workflows/ci.yml`）：gofmt / vet / test + 格式一致性独立校验 + windows、arm64 交叉编译冒烟
+- 格式一致性资产：
+  - `tools/vault/testdata/format_v1_vectors.json`：固定 salt/nonce/参数的测试向量
+    （master key、HKDF 各步输出、子密钥、144 字节头部、数据段字节、AEAD 密文体字节）
+  - `vault/vector_test.go`：参考实现按向量逐项校验 + 端到端组装/解析
+  - `docs/v1/verify_format_v1.py`：纯 Python 手写 HKDF-SHA256 与 XChaCha20-Poly1305 的独立校验脚本
+    （19 项断言全部通过，跨实现可照此验证）
 
 ### Changed
 
+- 规范修订（本项目价值在于设计与算法一致性，规范必须可被其他平台照实现）：
+  - `crypto-model.md` HKDF 拆分改为精确 5 步描述（旧描述缺少第二次 Extract 的说明；
+    照旧描述字面实现会派生出完全不同的子密钥 —— 已用脚本复算对比确认）
+  - 压缩流明确"不要求跨实现逐字节一致"，只要求解压还原后数据段一致
+  - `data-structures.md` 补"同一时间戳取文件中靠后一条"的确定性解析规则
 - 重构搜索为基于原始 key 的过滤机制：面板存储 `rawKeys`，搜索过滤作用于原始 key 后再聚合生成列表项
 - `DB` 增加解析视图缓存（`resolvedIndex`/`invalidateResolved`）：`Query`/`QueryKeys`/`Get` 不再每次调用
   全量 `ResolveLatest`。此前 TUI 每次按键是 O(n²)，2000 条时单次导航约 117 ms；现在约 0.16 ms

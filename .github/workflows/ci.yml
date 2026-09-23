@@ -42,6 +42,9 @@ jobs:
           go vet ./...
           go test ./... -count=1 -timeout 300s
 
+      - name: 格式一致性独立校验（测试向量 + 纯 Python 实现）
+        run: python3 docs/v1/verify_format_v1.py
+
       - name: 交叉编译冒烟（windows/amd64）
         run: |
           cd tools && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...
