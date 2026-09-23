@@ -76,6 +76,10 @@ type ImportStats struct {
 }
 
 func Import(xmlPath, tapPath, password string) (*ImportStats, error) {
+	if err := ensureOutputAbsent(tapPath); err != nil {
+		return nil, err
+	}
+
 	data, err := os.ReadFile(xmlPath)
 	if err != nil {
 		return nil, fmt.Errorf("read xml: %w", err)
@@ -105,7 +109,7 @@ func Import(xmlPath, tapPath, password string) (*ImportStats, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal vault: %w", err)
 	}
-	if err := os.WriteFile(tapPath, outData, 0600); err != nil {
+	if err := writeVaultFile(tapPath, outData); err != nil {
 		return nil, fmt.Errorf("write vault: %w", err)
 	}
 

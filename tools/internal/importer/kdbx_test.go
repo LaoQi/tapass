@@ -229,3 +229,27 @@ func TestIsKDBX(t *testing.T) {
 		t.Error("expected IsKDBX to return false for .txt file")
 	}
 }
+
+// KDBX 导入同样拒绝覆盖已有输出。
+func TestImportKDBXRefusesExistingOutput(t *testing.T) {
+	dir := t.TempDir()
+	kdbxPath := filepath.Join(dir, "test.kdbx")
+	tapPath := filepath.Join(dir, "existing.tap")
+
+	createTestKDBX(t, kdbxPath, "kdbx-password")
+	if err := os.WriteFile(tapPath, []byte("do not overwrite"), 0600); err != nil {
+		t.Fatalf("write existing output: %v", err)
+	}
+
+	if _, err := ImportKDBX(kdbxPath, tapPath, "kdbx-password", "tap-password"); err == nil {
+		t.Fatal("expected error when output file exists")
+	}
+
+	content, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "do not overwrite" {
+		t.Errorf("existing output file was modified: %q", string(content))
+	}
+}

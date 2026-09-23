@@ -12,6 +12,10 @@ import (
 )
 
 func ImportKDBX(kdbxPath, tapPath, kdbxPassword, tapPassword string) (*ImportStats, error) {
+	if err := ensureOutputAbsent(tapPath); err != nil {
+		return nil, err
+	}
+
 	file, err := os.Open(kdbxPath)
 	if err != nil {
 		return nil, fmt.Errorf("open kdbx: %w", err)
@@ -53,7 +57,7 @@ func ImportKDBX(kdbxPath, tapPath, kdbxPassword, tapPassword string) (*ImportSta
 	if err != nil {
 		return nil, fmt.Errorf("marshal vault: %w", err)
 	}
-	if err := os.WriteFile(tapPath, outData, 0600); err != nil {
+	if err := writeVaultFile(tapPath, outData); err != nil {
 		return nil, fmt.Errorf("write vault: %w", err)
 	}
 

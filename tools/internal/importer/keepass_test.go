@@ -838,3 +838,32 @@ func TestImportSteamTOTPPlugin(t *testing.T) {
 		t.Errorf("expected period=30 in URI, got '%s'", totp)
 	}
 }
+
+// 输出文件已存在时必须拒绝覆盖（避免误删已有 vault）。
+func TestImportRefusesExistingOutput(t *testing.T) {
+	dir := t.TempDir()
+	xmlPath := filepath.Join(dir, "test.xml")
+	tapPath := filepath.Join(dir, "existing.tap")
+
+	if err := os.WriteFile(xmlPath, []byte(testXML), 0644); err != nil {
+		t.Fatalf("write xml: %v", err)
+	}
+	if err := os.WriteFile(tapPath, []byte("do not overwrite"), 0600); err != nil {
+		t.Fatalf("write existing output: %v", err)
+	}
+
+	if _, err := Import(xmlPath, tapPath, "testpassword"); err == nil {
+		t.Fatal("expected error when output file exists")
+	}
+
+	content, err := os.ReadFile(tapPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "do not overwrite" {
+		t.Errorf("existing output file was modified: %q", string(content))
+	}
+	if _, err := os.Stat(tapPath + ".tmp"); !os.IsNotExist(err) {
+		t.Errorf("unexpected leftover tmp file")
+	}
+}

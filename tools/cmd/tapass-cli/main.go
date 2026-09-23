@@ -275,7 +275,7 @@ func (t *terminal) execute(line string) {
 
 	switch cmd {
 	case "create":
-		t.cmdCreate()
+		t.cmdCreate(args)
 	case "open":
 		t.cmdOpen()
 	case "set":
@@ -302,7 +302,14 @@ func (t *terminal) execute(line string) {
 	}
 }
 
-func (t *terminal) cmdCreate() {
+func (t *terminal) cmdCreate(args []string) {
+	force := len(args) > 1 && (args[1] == "-f" || args[1] == "--force")
+	if _, err := os.Stat(t.path); err == nil && !force {
+		fmt.Fprintf(out, "file already exists: %s\r\n", t.path)
+		fmt.Fprintln(out, "refusing to overwrite; use 'create -f' to force")
+		return
+	}
+
 	password1 := readPassword("New password: ")
 	password2 := readPassword("Confirm password: ")
 	if password1 != password2 {
@@ -513,7 +520,7 @@ func (t *terminal) cmdCompact() {
 
 func (t *terminal) cmdHelp() {
 	fmt.Fprintln(out, `Commands:
-  create              Create a new vault
+  create [-f]         Create a new vault (-f overwrites an existing file)
   open                Open a vault file
   set <key> <value>   Set an entry
   get <key>           Get an entry value

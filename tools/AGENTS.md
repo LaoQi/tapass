@@ -115,7 +115,7 @@ tapass-cli <vault-file>
 
 | 命令 | 说明 |
 |------|------|
-| `create` | 创建新 vault（两次密码确认） |
+| `create [-f]` | 创建新 vault（两次密码确认）；目标文件已存在时拒绝，`-f` 强制覆盖 |
 | `open` | 打开/切换 vault 文件 |
 | `set <key> <value>` | 设置条目 |
 | `get <key>` | 获取条目值 |
@@ -148,8 +148,10 @@ tapass-cli <vault-file>
 ### 导入工具
 
 ```
-tapass-import <keepass.xml> <output.tap>
+tapass-import <input.xml|input.kdbx> <output.tap>
 ```
+
+- 输出文件已存在时拒绝导入（不会覆盖已有 vault）；写出使用临时文件 + rename 原子替换
 
 #### TOTP 导入
 

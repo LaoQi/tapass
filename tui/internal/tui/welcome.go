@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -17,9 +19,29 @@ const (
 	WelcomeOpenPath
 	WelcomeOpenPassword
 	WelcomeNewPath
+	WelcomeConfirmOverwrite
 	WelcomeNewPassword
 	WelcomeNewPasswordConfirm
 )
+
+// errVaultPathExists 目标文件已存在（需要用户确认覆盖）。
+var errVaultPathExists = errors.New("file already exists")
+
+// checkNewVaultPath 校验新建 vault 的目标路径：
+// 不存在 → 可继续；已存在 → 需要确认覆盖；目录或其他错误 → 直接失败。
+func checkNewVaultPath(path string) (needsConfirm bool, err error) {
+	info, statErr := os.Stat(path)
+	switch {
+	case statErr == nil && info.IsDir():
+		return false, fmt.Errorf("%s is a directory", path)
+	case statErr == nil:
+		return true, nil
+	case os.IsNotExist(statErr):
+		return false, nil
+	default:
+		return false, statErr
+	}
+}
 
 type WelcomeModel struct {
 	state         WelcomeState
@@ -135,8 +157,22 @@ func (m WelcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case WelcomeNewPath:
 			switch msg.String() {
 			case "enter":
-				m.state = WelcomeNewPassword
+				path := strings.TrimSpace(m.pathInput.Value())
+				if path == "" {
+					m.err = fmt.Errorf("path cannot be empty")
+					return m, nil
+				}
+				needsConfirm, err := checkNewVaultPath(path)
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
 				m.pathInput.Blur()
+				if needsConfirm {
+					m.state = WelcomeConfirmOverwrite
+					return m, nil
+				}
+				m.state = WelcomeNewPassword
 				m.passwordInput.Focus()
 				return m, nil
 			case "esc":
@@ -150,6 +186,20 @@ func (m WelcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.pathInput, cmd = m.pathInput.Update(msg)
 			return m, cmd
+
+		case WelcomeConfirmOverwrite:
+			switch msg.String() {
+			case "y":
+				m.state = WelcomeNewPassword
+				m.err = nil
+				m.passwordInput.Focus()
+				return m, nil
+			case "n", "esc":
+				m.state = WelcomeNewPath
+				m.pathInput.Focus()
+				return m, nil
+			}
+			return m, nil
 
 		case WelcomeNewPassword:
 			switch msg.String() {
@@ -244,6 +294,11 @@ func (m WelcomeModel) View() tea.View {
 		content.WriteString("Enter path for new vault:\n\n")
 		content.WriteString(inputStyle.Width(inputW).Render(m.pathInput.View()))
 
+	case WelcomeConfirmOverwrite:
+		content.WriteString(errorStyle.Render(fmt.Sprintf("File already exists: %s", m.pathInput.Value())))
+		content.WriteString("\n\n")
+		content.WriteString(menuStyle.Render("  [y] overwrite  [n] back"))
+
 	case WelcomeNewPassword:
 		content.WriteString(fmt.Sprintf("Creating: %s\n\n", m.pathInput.Value()))
 		content.WriteString("Enter master password:\n\n")
@@ -290,8 +345,11 @@ func (m WelcomeModel) View() tea.View {
 		Render(contentStr)
 
 	hint := "[esc] back"
-	if m.state == WelcomeSelect {
+	switch m.state {
+	case WelcomeSelect:
 		hint = "[o] open  [n] new  [q] quit"
+	case WelcomeConfirmOverwrite:
+		hint = "[y] overwrite  [n] back"
 	}
 	statusView := statusBarStyle.Width(width).Render(hint)
 

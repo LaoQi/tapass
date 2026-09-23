@@ -23,7 +23,8 @@ internal/
     listing_test.go
   tui/                      # Bubble Tea 视图层
     app.go                  # 主 Model + AppState(DB/DBPath) + page tea.Model 页面路由 + 窗口状态(StateWelcome/StateMainView/StateHelp/StateDBConfig) + 消息类型 + switchToMainView/updateMainView 辅助 + ErrorMsg 统一转 showErrorMsg 投递给页面（不再持有 err 字段）
-    welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）
+    welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）+ 覆盖确认（WelcomeConfirmOverwrite）+ 目标路径校验（checkNewVaultPath）
+    welcome_test.go         # 覆盖确认/路径校验回归测试
     mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点 + 搜索过滤 + propagatePanelSize/propagatePanelFocus + syncRightFromLeft(发送右栏意图消息) + updateLeft/updateRight 类型断言辅助
     mainview_test.go        # 右栏意图路由回归测试（属性列表 / 属性详情 / 空列表 / 事件刷新）
     panellist.go            # 列表面板（rawKeys存储原始key + buildItems聚合 + rebuildItems过滤聚合 + 分组/属性图标 + 搜索框 + Depth区分 + 滚动跟随 + resizeMsg/setFocusMsg 消息驱动）
@@ -112,6 +113,9 @@ internal/
 - `NewDB` 私有化为 `newDB`：外部通过 `OpenDB`/`CreateDB` 获取 DB 实例；CreateDB 不立即写文件，需手动 Save 落盘
 - 状态栏 `[c] config` 始终显示，`[Ctrl+S] save` 仅 dirty 时显示
 - 欢迎页居中排版，TAPASS ASCII art 紫色显示
+- 新建 vault 前校验目标路径（`checkNewVaultPath`）：不存在 → 直接进入密码输入；已存在 → `WelcomeConfirmOverwrite`
+  （`y` 覆盖 / `n`、`esc` 返回）；空路径与目录路径直接报错，不进入密码输入
+- 覆盖确认前不写任何文件（CreateDB 不落盘），确认后才允许后续 Ctrl+S 落盘
 - 右侧面板查看模式下按 `y` 复制属性值到剪贴板：TOTP 属性复制当前验证码，其他属性复制原始值
 - 复制成功显示"已复制到剪贴板"提示（copySuccessStyle），1.5 秒后由 copyClearMsg 自动清除
 - 复制失败（如缺少 xclip/xsel）必须显示"复制失败: <原因>"（errorStyle，5 秒后清除），不得无条件显示成功提示

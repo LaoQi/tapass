@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeriveMasterKey` 的 `uint8(parallelism)` 隐式截断：改为显式校验参数
 - 参数超出本机内存时被 OOM kill：解析/派生/建库前按本机可用内存判断能力，不足返回 `ErrInsufficientMemory`
 - `zeroBytes` 对空切片 panic
+- 新建/导入时目标文件已存在会被直接覆盖（数据丢失）：
+  TUI 新建 vault 增加覆盖确认（`WelcomeConfirmOverwrite`，`y` 覆盖 / `n`、`esc` 返回），
+  并校验空路径与目录路径；CLI `create` 默认拒绝覆盖（`create -f` 显式强制）；
+  导入工具拒绝覆盖已有输出文件，且写出改为临时文件 + rename 原子替换
 - 未知 Compression ID 被静默当作"无压缩"，格式扩展/文件损坏时会解出错乱数据：
   压缩标识在 `NewHeader`/`UnmarshalHeader`/`Open`/`MarshalBinary` 均显式校验，未知值返回 `ErrUnsupportedCompression`
 - TUI 错误静默：`AppModel.err` 只赋值从不渲染，保存失败对用户完全不可见。`ErrorMsg` 现在统一投递到
@@ -29,7 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `docs/platforms.md`：运行平台矩阵与资源约束（含可用内存 <32 MiB 的嵌入式设备场景）
-- `tui/internal/tui` 测试文件：右栏意图路由回归（mainview_test.go）+ 错误展示回归（app_test.go）
+- `tui/internal/tui` 测试文件：右栏意图路由（mainview_test.go）、错误展示（app_test.go）、
+  新建覆盖确认与路径校验（welcome_test.go）回归
 - KDF 参数能力判断（Linux 读 `/proc/meminfo` 的 `MemAvailable`），不设参数上下限
 
 ### Changed
