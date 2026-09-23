@@ -31,7 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     照旧描述字面实现会派生出完全不同的子密钥 —— 已用脚本复算对比确认）
   - 压缩流明确"不要求跨实现逐字节一致"，只要求解压还原后数据段一致
   - `data-structures.md` 补"同一时间戳取文件中靠后一条"的确定性解析规则
-- 重构搜索为基于原始 key 的过滤机制：面板存储 `rawKeys`，搜索过滤作用于原始 key 后再聚合生成列表项
 - `DB` 增加解析视图缓存（`resolvedIndex`/`invalidateResolved`）：`Query`/`QueryKeys`/`Get` 不再每次调用
   全量 `ResolveLatest`。此前 TUI 每次按键是 O(n²)，2000 条时单次导航约 117 ms；现在约 0.16 ms
   （`Get` 1.13 ms → 4.5 µs）
@@ -67,11 +66,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TUI 右栏属性列表不可达：`syncRightMsg` 的 `SetDetailMode` 分支覆盖了 `detailModeAttrList`，
   选中分组时右栏显示空详情而非属性列表。已拆分显式意图消息（`showAttrListMsg`/`showAttrDetailMsg`/`clearDetailMsg`）
 
+## [v0.1.1] - 2026-06-11
+
+### Added
+
+- 搜索过滤（`/` 键进入）：基于当前前缀、大小写不敏感，过滤作用于原始 key 后再聚合为列表项
+- 帮助覆盖层（`?` 键）
+
+### Changed
+
+- 发布包（zip）开始附带 `CHANGELOG.md`（`make dist`）
+
 ### Removed
 
 - 移除 `DB.SearchKeys()` 全局搜索方法
 
-## [v0.1.0] - 2025-06-11
+## [v0.1.0] - 2026-06-10
 
 ### Added
 
@@ -85,8 +95,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - TOTP / Steam TOTP 验证码生成
   - 属性值复制到剪贴板
   - dirty 标记 + 保存/退出确认
-  - 搜索过滤（`/` 键进入，基于当前前缀）
   - 数据库设置（改密）
-  - 帮助覆盖层（`?` 键）
 - 共享 version 包 + Makefile 交叉编译 + `--version` 参数
 - GitHub Actions Release workflow（tag 触发，自动构建 Linux/Windows 并发布）

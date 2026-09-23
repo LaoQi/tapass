@@ -24,10 +24,13 @@ internal/
     listing_test.go
   tui/                      # Bubble Tea 视图层
     app.go                  # 主 Model + AppState(DB/DBPath) + page tea.Model 页面路由 + 窗口状态(StateWelcome/StateMainView/StateHelp/StateDBConfig) + 消息类型 + switchToMainView/updateMainView 辅助 + ErrorMsg 统一转 showErrorMsg 投递给页面（不再持有 err 字段）
+    app_test.go             # ErrorMsg → 状态栏错误展示回归测试
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）+ 覆盖确认（WelcomeConfirmOverwrite）+ 目标路径校验（checkNewVaultPath）
     welcome_test.go         # 覆盖确认/路径校验回归测试
     mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点 + 搜索过滤 + propagatePanelSize/propagatePanelFocus + syncRightFromLeft(发送右栏意图消息) + updateLeft/updateRight 类型断言辅助
     mainview_test.go        # 右栏意图路由回归测试（属性列表 / 属性详情 / 空列表 / 事件刷新）
+    messages.go             # 共享消息类型（OpenVaultMsg/CreateVaultMsg/AttrChangedMsg/PasswordChangedMsg/VaultSavedMsg/ErrorMsg 等
+                            #   + 右栏显式意图消息 showAttrListMsg/showAttrDetailMsg/clearDetailMsg）
     panellist.go            # 列表面板（rawKeys存储原始key + buildItems聚合 + rebuildItems过滤聚合 + 分组/属性图标 + 搜索框 + Depth区分 + 滚动跟随 + resizeMsg/setFocusMsg 消息驱动）
     entrydetail.go          # 条目详情状态管理（detailState/detailMode + Update消息处理：showAttrListMsg/showAttrDetailMsg/clearDetailMsg + View路由分发 + IsTOTP/TOTPCode读取 + refresh/saveKV/resizeEditor + 密码生成器状态detailPassGen）
     detail_attrlist.go      # AttrListView — 属性列表渲染组件（Renderer接口）
@@ -41,6 +44,7 @@ internal/
     helpview.go             # 帮助视图（StateHelp 窗口状态，居中面板显示快捷键说明）
     dbconfig.go             # 数据库设置（改密，成功发 PasswordChangedMsg + resizeMsg 消息驱动）
     styles.go               # 共享样式（含 TOTP/进度条/dirty 标题/状态栏按键/复制成功/密码生成器样式）
+    utils.go                # 文本宽度工具（truncateString/wrapLine 等，基于 go-runewidth）
 ```
 
 ## 依赖说明

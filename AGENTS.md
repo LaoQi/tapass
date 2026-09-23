@@ -8,7 +8,8 @@ tapass 密码管理器单一仓库。
 tapass/
 ├── CHANGELOG.md    # 变更日志（发布包附带）
 ├── docs/           # 设计文档
-│   └── v1/         # V1 版本设计
+│   ├── platforms.md   # 运行平台矩阵与资源约束
+│   └── v1/            # V1 版本设计
 ├── tools/          # CLI 工具集（独立 Go 模块）
 │   ├── cmd/tapass-cli/        # 交互式 CLI 工具
 │   ├── cmd/tapass-import/     # KeePass 导入

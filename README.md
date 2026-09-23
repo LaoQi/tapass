@@ -15,8 +15,10 @@ tapass 密码管理器 — 安全、简洁、自托管。
 
 ```
 tapass/
+├── CHANGELOG.md    # 变更日志（发布包附带）
 ├── docs/           # 设计文档
-│   └── v1/         # V1 版本设计
+│   ├── platforms.md   # 运行平台与资源约束
+│   └── v1/            # V1 版本设计
 ├── tools/          # CLI 工具集 + 核心加密库
 └── tui/            # TUI 客户端
 ```
@@ -28,7 +30,7 @@ tapass/
 核心加密库（vault）和命令行工具：
 
 - `tapass-cli` — 交互式 CLI（create/open/set/get/delete/list/raw/passwd/compact）
-- `tapass-import` — KeePass XML 导入工具
+- `tapass-import` — KeePass XML/KDBX 导入工具
 
 ### tui — TUI 客户端
 
@@ -40,3 +42,10 @@ tapass/
 - [V1 数据结构](docs/v1/data-structures.md)
 - [V1 加密模型](docs/v1/crypto-model.md)
 - [V1 JSON Schema](docs/v1/schema.json)
+- [运行平台与资源约束](docs/platforms.md)
+- [变更日志](CHANGELOG.md)
+
+## 格式一致性
+
+- 测试向量：[`tools/vault/testdata/format_v1_vectors.json`](tools/vault/testdata/format_v1_vectors.json)
+- 独立校验脚本（不依赖参考实现）：`python3 docs/v1/verify_format_v1.py`

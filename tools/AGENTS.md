@@ -17,20 +17,28 @@ go run ./cmd/tapass-import/                         # 运行导入工具
 
 ```
 cmd/tapass-cli/main.go       # 交互式 CLI 工具入口
-cmd/tapass-import/main.go    # KeePass XML 导入入口
+cmd/tapass-import/main.go    # KeePass XML/KDBX 导入入口
 vault/                       # 核心加密库（非 internal，供 tui 跨模块引用）
   crypto.go                  # Argon2id + HKDF + XChaCha20-Poly1305
   compress.go                # flate 裸 DEFLATE
   entry.go                   # KV 条目序列化
   header.go                  # 144 字节头部
-  vault.go                   # Vault CRUD + ChangePassword + Compact
+  params.go                  # Argon2 参数校验 + 本机可用内存能力判断
+  vault.go                   # Vault CRUD + ChangePassword + Rekey + Sort + Compact
   vault_test.go
+  compress_test.go
+  params_test.go
+  vector_test.go             # 按格式一致性测试向量逐项校验
+  testdata/format_v1_vectors.json  # 固定 salt/nonce/参数的测试向量
 version/                     # 共享版本信息包（供 tui 跨模块引用）
   version.go                 # Version/Commit 变量 + String() 函数
 internal/
-  importer/                  # KeePass XML 导入
-    keepass.go
+  importer/                  # KeePass XML/KDBX 导入
+    io.go                    # 输出文件校验 + 原子写出（临时文件 + rename）
+    keepass.go               # KeePass XML 解析
+    kdbx.go                  # KeePass KDBX 解析
     keepass_test.go
+    kdbx_test.go
 ```
 
 ## 二进制格式关键约束
@@ -56,6 +64,7 @@ vault 包不直接操作文件系统，所有 I/O 通过 `[]byte` 传递：
 | `ChangePassword` | `(old, new string) ([]byte, error)` | 改密（KDF 参数不变），返回新 vault 字节 |
 | `Rekey` | `(old, new string, params Argon2Params) ([]byte, error)` | 改 KDF 参数（可同时改密）：新 salt/nonce、重新派生、重新加密并自校验 |
 | `Params` | `() Argon2Params` | 头部声明的 KDF 参数（只读） |
+| `DerivedParams` | `() Argon2Params` | 当前密钥实际的派生参数（与头部参数的一致性由 `MarshalBinary` 校验） |
 | `ValidateArgon2Params` | `(Argon2Params) error` | 参数能否被本实现精确执行 |
 | `CheckArgon2Resource` | `(Argon2Params) error` | 本机当前是否有能力按该参数解析（Linux 读 /proc/meminfo） |
 | `Set/SetBlob/Delete` | 纯内存操作 | 不自动持久化 |
