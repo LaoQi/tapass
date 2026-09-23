@@ -59,8 +59,8 @@ vault 包不直接操作文件系统，所有 I/O 通过 `[]byte` 传递：
 | `ValidateArgon2Params` | `(Argon2Params) error` | 参数能否被本实现精确执行 |
 | `CheckArgon2Resource` | `(Argon2Params) error` | 本机当前是否有能力按该参数解析（Linux 读 /proc/meminfo） |
 | `Set/SetBlob/Delete` | 纯内存操作 | 不自动持久化 |
-| `Sort` | `()` | 排序 Entries |
-| `Compact` | `()` | 压缩 Entries（纯内存） |
+| `Sort` | `()` | 按时间戳稳定排序 Entries（同一时间戳保持原相对顺序） |
+| `Compact` | `()` | 压缩 Entries（纯内存；每 key 保留最新一条，结果顺序确定） |
 
 - 文件读写由调用方负责（CLI、importer、TUI store 各自实现原子写入）
 

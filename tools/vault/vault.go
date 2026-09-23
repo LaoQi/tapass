@@ -135,8 +135,11 @@ func (v *Vault) AddEntry(e Entry) {
 	v.Entries = append(v.Entries, e)
 }
 
+// Sort 按时间戳升序排列。使用稳定排序：同一时间戳（同一毫秒内的多次写入、
+// 导入的历史时间戳）的条目必须保持原有相对顺序，否则"同 key 同时间戳"的记录
+// 会被重排，ResolveLatest 可能解析出先写入的旧值。
 func (v *Vault) Sort() {
-	sort.Slice(v.Entries, func(i, j int) bool {
+	sort.SliceStable(v.Entries, func(i, j int) bool {
 		return v.Entries[i].Timestamp < v.Entries[j].Timestamp
 	})
 }
@@ -290,12 +293,29 @@ func (v *Vault) Rekey(oldPassword, newPassword string, params Argon2Params) ([]b
 	return fileData, nil
 }
 
+// Compact 丢弃历史版本与已删除条目，每个 key 只保留最新一条。
+// 结果按幸存条目在原切片中的位置排序（确定性）：此前直接遍历 map，
+// 幸存条目顺序随机，会破坏同一时间戳记录的先后关系。
 func (v *Vault) Compact() {
-	resolved := v.List()
+	winner := make(map[string]int, len(v.Entries))
+	for i, e := range v.Entries {
+		prev, ok := winner[e.Key]
+		if !ok || e.Timestamp >= v.Entries[prev].Timestamp {
+			winner[e.Key] = i
+		}
+	}
 
-	var entries []Entry
-	for _, e := range resolved {
-		entries = append(entries, e)
+	kept := make([]int, 0, len(winner))
+	for _, i := range winner {
+		if v.Entries[i].Type != TypeClear {
+			kept = append(kept, i)
+		}
+	}
+	sort.Ints(kept)
+
+	entries := make([]Entry, 0, len(kept))
+	for _, i := range kept {
+		entries = append(entries, v.Entries[i])
 	}
 	v.Entries = entries
 }

@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeriveMasterKey` 的 `uint8(parallelism)` 隐式截断：改为显式校验参数
 - 参数超出本机内存时被 OOM kill：解析/派生/建库前按本机可用内存判断能力，不足返回 `ErrInsufficientMemory`
 - `zeroBytes` 对空切片 panic
+- vault `Compact()` 结果顺序随机（遍历 map）：幸存条目顺序不确定，破坏同一时间戳记录的先后关系。
+  改为按幸存条目在原切片中的位置排序（确定性）
+- vault `Sort()` 改为稳定排序：同一时间戳（同毫秒多次写入 / 导入的历史时间戳）的条目
+  不得被重排，否则"同 key 同时间戳"记录可能解析出先写入的旧值
 - 新建/导入时目标文件已存在会被直接覆盖（数据丢失）：
   TUI 新建 vault 增加覆盖确认（`WelcomeConfirmOverwrite`，`y` 覆盖 / `n`、`esc` 返回），
   并校验空路径与目录路径；CLI `create` 默认拒绝覆盖（`create -f` 显式强制）；

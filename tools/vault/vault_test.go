@@ -1,8 +1,10 @@
 package vault
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -195,5 +197,90 @@ func TestChangePassword(t *testing.T) {
 	val, ok := v2.Get("/entry1/username")
 	if !ok || string(val) != "Test" {
 		t.Errorf("expected 'Test', got '%s'", string(val))
+	}
+}
+
+// Sort 必须稳定：同一时间戳的条目保持原有相对顺序。
+// 否则"同 key 同时间戳"的多条记录会后一条被排到前面，
+// ResolveLatest 会解析出先写入的旧值（加密存储里的不确定性）。
+func TestSortIsStable(t *testing.T) {
+	const ts = 1700000000000
+
+	var entries []Entry
+	for i := 0; i < 40; i++ {
+		entries = append(entries, NewEntryWithTimestamp(TypeText, fmt.Sprintf("/filler/%02d", i), []byte("x"), ts))
+	}
+	entries = append(entries, NewEntryWithTimestamp(TypeText, "/dup", []byte("first"), ts))
+	for i := 40; i < 80; i++ {
+		entries = append(entries, NewEntryWithTimestamp(TypeText, fmt.Sprintf("/filler/%02d", i), []byte("x"), ts))
+	}
+	entries = append(entries, NewEntryWithTimestamp(TypeText, "/dup", []byte("second"), ts))
+
+	v := &Vault{Hdr: &Header{}, SubKeys: &SubKeys{}, Entries: entries}
+	v.Sort()
+
+	// 1) 严格稳定性：整体顺序不变（全部时间戳相同）
+	for i := range v.Entries {
+		if v.Entries[i].Key != entries[i].Key {
+			t.Fatalf("Sort reordered equal-timestamp entries at index %d: %q -> %q",
+				i, entries[i].Key, v.Entries[i].Key)
+		}
+	}
+
+	// 2) 同 key 解析结果必须是后写入的值
+	val, ok := v.Get("/dup")
+	if !ok {
+		t.Fatal("expected /dup to resolve")
+	}
+	if string(val) != "second" {
+		t.Errorf("expected latest write to win, got %q", string(val))
+	}
+}
+
+// Compact 必须保持幸存条目的原有相对顺序（此前用 map 遍历，顺序随机）。
+func TestCompactKeepsOrder(t *testing.T) {
+	const base = 1700000000000
+
+	build := func() *Vault {
+		var entries []Entry
+		for i := 0; i < 30; i++ {
+			key := fmt.Sprintf("/grp/entry%02d/PASSWD", i)
+			entries = append(entries, NewEntryWithTimestamp(TypeText, key, []byte("v"), base+uint64(i*1000)))
+			// 制造同 key 的历史版本与删除记录，供 Compact 清理
+			entries = append(entries, NewEntryWithTimestamp(TypeText, key, []byte("old"), base+uint64(i*1000-500)))
+			entries = append(entries, NewEntryWithTimestamp(TypeClear, fmt.Sprintf("/grp/deleted%02d", i), nil, base+uint64(i*1000)))
+		}
+		return &Vault{Hdr: &Header{}, SubKeys: &SubKeys{}, Entries: entries}
+	}
+
+	for run := 0; run < 20; run++ {
+		v := build()
+		want := make([]string, 0)
+		for _, e := range v.Entries {
+			if e.Type != TypeClear && !strings.Contains(e.Key, "/deleted") {
+				// 每条 key 只保留最新：按首次出现的位置记录期望顺序
+				seen := false
+				for _, w := range want {
+					if w == e.Key {
+						seen = true
+						break
+					}
+				}
+				if !seen {
+					want = append(want, e.Key)
+				}
+			}
+		}
+
+		v.Compact()
+		if len(v.Entries) != len(want) {
+			t.Fatalf("run %d: expected %d entries after compact, got %d", run, len(want), len(v.Entries))
+		}
+		for i, e := range v.Entries {
+			if e.Key != want[i] {
+				t.Fatalf("run %d: compact reordered entries at index %d: got %q want %q",
+					run, i, e.Key, want[i])
+			}
+		}
 	}
 }
