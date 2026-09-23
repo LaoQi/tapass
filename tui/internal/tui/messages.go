@@ -62,13 +62,21 @@ type tickMsg struct{}
 
 type copyClearMsg struct{}
 
-type syncRightMsg struct {
-	EntryPath     string
-	Attrs         []AttrInfo
-	SelectedAttr  string
-	SetDetailMode bool
-	ClearOnly     bool
+// 右栏展示意图（显式互斥；替代原先字段互相覆盖的 syncRightMsg）
+// showAttrListMsg：右栏显示某分组/条目下的属性列表
+type showAttrListMsg struct {
+	Prefix string
+	Attrs  []AttrInfo
 }
+
+// showAttrDetailMsg：右栏显示单个属性详情
+type showAttrDetailMsg struct {
+	EntryPath string
+	Attr      string
+}
+
+// clearDetailMsg：右栏清空（无选中项）
+type clearDetailMsg struct{}
 
 type startNewMsg struct{ Prefix string }
 

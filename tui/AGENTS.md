@@ -24,9 +24,10 @@ internal/
   tui/                      # Bubble Tea 视图层
     app.go                  # 主 Model + AppState(DB/DBPath) + page tea.Model 页面路由 + 窗口状态(StateWelcome/StateMainView/StateHelp/StateDBConfig) + 消息类型 + switchToMainView/updateMainView 辅助
     welcome.go              # 欢迎/打开/新建数据库（TAPASS ASCII art，使用 model.OpenDB/CreateDB）
-    mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点 + 搜索过滤 + propagatePanelSize/propagatePanelFocus + updateLeft/updateRight 类型断言辅助
+    mainview.go             # 双栏布局 + vim导航 + TOTP tick管理 + dirty标记 + MainState(StateBrowse/StatePendingQuit) + searchActive + 三焦点 + 搜索过滤 + propagatePanelSize/propagatePanelFocus + syncRightFromLeft(发送右栏意图消息) + updateLeft/updateRight 类型断言辅助
+    mainview_test.go        # 右栏意图路由回归测试（属性列表 / 属性详情 / 空列表 / 事件刷新）
     panellist.go            # 列表面板（rawKeys存储原始key + buildItems聚合 + rebuildItems过滤聚合 + 分组/属性图标 + 搜索框 + Depth区分 + 滚动跟随 + resizeMsg/setFocusMsg 消息驱动）
-    entrydetail.go          # 条目详情状态管理（detailState/detailMode + Update消息处理 + View路由分发 + IsTOTP/TOTPCode读取 + refresh/saveKV/resizeEditor + 密码生成器状态detailPassGen）
+    entrydetail.go          # 条目详情状态管理（detailState/detailMode + Update消息处理：showAttrListMsg/showAttrDetailMsg/clearDetailMsg + View路由分发 + IsTOTP/TOTPCode读取 + refresh/saveKV/resizeEditor + 密码生成器状态detailPassGen）
     detail_attrlist.go      # AttrListView — 属性列表渲染组件（Renderer接口）
     detail_empty.go         # EmptyDetailView — 空详情渲染组件（Renderer接口）
     detail_text.go          # TextDetailView — 文本属性渲染组件（Renderer接口）
@@ -85,7 +86,11 @@ internal/
 - vim 导航：h=上一级，j/k=上下，l=打开/聚焦右栏；Tab=切换左右栏
 - 左栏选中属性(Depth=0)时 e/y/d 快捷键直接跳转右栏操作
 - 详情面板 detailModeAttrList：显示属性名+修改时间列表；detailModeDetail：标题=属性key，第一栏=修改时间，第二栏=属性值
-  - ⚠️ 已知缺陷（待修）：syncRightMsg 的 SetDetailMode 分支会覆盖 detailModeAttrList，属性列表实际不可达
+- 右栏展示由显式意图消息驱动（`showAttrListMsg`/`showAttrDetailMsg`/`clearDetailMsg`，定义在 messages.go）：
+  左栏选中分组/条目（Depth>0）→ `showAttrListMsg`；选中属性（Depth==0）→ `showAttrDetailMsg`；左栏为空 → `clearDetailMsg`
+  - 旧 `syncRightMsg` 的字段（EntryPath/Attrs/SetDetailMode/ClearOnly）语义互相覆盖，曾导致属性列表不可达，已移除
+  - 三个消息均只改右栏数据，不改变 `m.state`（编辑/密码生成/删除确认状态不被刷新打断）
+- 属性列表模式下 `EntryPath` = 左栏选中项的路径，按 `n` 新建属性时用作 key 前缀
 - TOTP 属性：解析 `otpauth://totp/` URI，支持 secret/digits/period/algorithm(SHA1/SHA256/SHA512)参数；计算逻辑在 TOTPDetailView.ComputeCode()，入口在 detail_totp.go
 - Steam TOTP：digits=S 时使用字符表 `23456789BCDFGHJKMNPQRTVWXY` 生成5位字符码
 - TOTP tick 通过 mainview 的 totpActive 标志 + Update 末尾检查启动；tick 到达时发送 refreshTOTPMsg 更新 TOTPDetailView
@@ -110,7 +115,7 @@ internal/
 - 右侧面板查看模式下按 `y` 复制属性值到剪贴板：TOTP 属性复制当前验证码，其他属性复制原始值
 - 复制成功显示"已复制到剪贴板"提示（copySuccessStyle），1.5 秒后由 copyClearMsg 自动清除
 - copyClearMsg 由 entrydetail 产生，mainview 层转发，不跳过子组件路由
-- 切换条目/属性/状态时（SetEntryPath/SelectAttr/StartEdit/StartNew/SetAttrList/SetDetailMode）自动清除复制提示
+- 切换条目/属性时（`showAttrListMsg`/`showAttrDetailMsg`/`startNewMsg`）自动清除复制提示
 - 密码生成器：编辑KV时按 Ctrl+G 进入 detailPassGen 状态；j/k 导航规则行，space 切换布尔项，+/- 调整长度，g 生成密码，enter 应用到值区域，esc 返回编辑
 - 密码生成器使用 crypto/rand 安全随机，保证每类启用字符至少出现一次；支持排除易混淆字符（0Oo1lI）
 - EntryDetailModel 持有 passGen PassGenState 字段，进入密码生成器时初始化，应用后回填 valueArea

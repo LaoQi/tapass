@@ -16,10 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeriveMasterKey` 的 `uint8(parallelism)` 隐式截断：改为显式校验参数
 - 参数超出本机内存时被 OOM kill：解析/派生/建库前按本机可用内存判断能力，不足返回 `ErrInsufficientMemory`
 - `zeroBytes` 对空切片 panic
+- TUI 右栏属性列表不可达：`syncRightMsg` 的 `SetDetailMode` 分支覆盖了 `detailModeAttrList`，
+  选中分组时右栏显示空详情而非属性列表。已拆分显式意图消息（`showAttrListMsg`/`showAttrDetailMsg`/`clearDetailMsg`），
+  并补 tui 视图层回归测试
 
 ### Added
 
 - `docs/platforms.md`：运行平台矩阵与资源约束（含可用内存 <32 MiB 的嵌入式设备场景）
+- `tui/internal/tui` 首个测试文件（右栏意图路由回归）
 - KDF 参数能力判断（Linux 读 `/proc/meminfo` 的 `MemAvailable`），不设参数上下限
 
 ### Changed

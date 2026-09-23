@@ -154,45 +154,41 @@ func (m EntryDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case syncRightMsg:
-		if msg.ClearOnly {
-			m.entryPath = ""
-			m.selectedAttr = ""
-			m.selectedEntry = nil
-			m.state = detailView
-			m.copySuccess = false
-			m.mode = detailModeAttrList
-			m.attrList = nil
-			m.totpView = nil
-			return m, nil
-		}
-		if msg.EntryPath != "" {
-			m.entryPath = msg.EntryPath
-			m.selectedAttr = msg.SelectedAttr
-			m.selectedEntry = nil
-			m.copySuccess = false
-			if m.db != nil && msg.SelectedAttr != "" {
-				fullKey := msg.EntryPath + "/" + msg.SelectedAttr
-				if e, ok := m.db.Get(fullKey); ok {
-					m.selectedEntry = &e
-					if msg.SelectedAttr == "TOTP" {
-						m.totpView = m.newTOTPView(string(e.Value))
-					}
+	case clearDetailMsg:
+		m.entryPath = ""
+		m.selectedAttr = ""
+		m.selectedEntry = nil
+		m.state = detailView
+		m.copySuccess = false
+		m.mode = detailModeAttrList
+		m.attrList = nil
+		m.totpView = nil
+		return m, nil
+	case showAttrListMsg:
+		m.entryPath = msg.Prefix
+		m.selectedAttr = ""
+		m.selectedEntry = nil
+		m.copySuccess = false
+		m.mode = detailModeAttrList
+		m.attrList = msg.Attrs
+		m.totpView = nil
+		return m, nil
+	case showAttrDetailMsg:
+		m.entryPath = msg.EntryPath
+		m.selectedAttr = msg.Attr
+		m.selectedEntry = nil
+		m.copySuccess = false
+		m.mode = detailModeDetail
+		m.attrList = nil
+		m.totpView = nil
+		if m.db != nil && msg.Attr != "" {
+			fullKey := msg.EntryPath + "/" + msg.Attr
+			if e, ok := m.db.Get(fullKey); ok {
+				m.selectedEntry = &e
+				if msg.Attr == "TOTP" {
+					m.totpView = m.newTOTPView(string(e.Value))
 				}
 			}
-		} else {
-			m.entryPath = ""
-			m.selectedAttr = ""
-			m.selectedEntry = nil
-			m.copySuccess = false
-			if msg.SetDetailMode {
-				m.mode = detailModeAttrList
-				m.attrList = msg.Attrs
-			}
-		}
-		if msg.SetDetailMode {
-			m.mode = detailModeDetail
-			m.attrList = nil
 		}
 		return m, nil
 	case dbEventMsg:

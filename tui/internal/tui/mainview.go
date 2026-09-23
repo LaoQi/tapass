@@ -78,25 +78,25 @@ func NewMainViewModel(db *model.DB, dbPath string, prefix string, w, h int) Main
 
 func (m MainViewModel) syncRightFromLeft() MainViewModel {
 	if m.leftPanel.ItemCount() == 0 {
-		m.rightPanel = updateRight(m.rightPanel, syncRightMsg{ClearOnly: true})
+		m.rightPanel = updateRight(m.rightPanel, clearDetailMsg{})
 		return m
 	}
+
 	selected := m.leftPanel.SelectedItem()
 	if selected.Depth > 0 {
-		attrs := m.queryAttributes(selected.FullPath)
-		m.rightPanel = updateRight(m.rightPanel, syncRightMsg{
-			EntryPath:     "",
-			Attrs:         attrs,
-			SetDetailMode: true,
+		// 分组/条目：右栏显示其属性列表
+		m.rightPanel = updateRight(m.rightPanel, showAttrListMsg{
+			Prefix: selected.FullPath,
+			Attrs:  m.queryAttributes(selected.FullPath),
 		})
-	} else {
-		entryPath := model.ParentPath(selected.FullPath)
-		m.rightPanel = updateRight(m.rightPanel, syncRightMsg{
-			EntryPath:     entryPath,
-			SelectedAttr:  selected.Name,
-			SetDetailMode: true,
-		})
+		return m
 	}
+
+	// 属性：右栏显示属性详情
+	m.rightPanel = updateRight(m.rightPanel, showAttrDetailMsg{
+		EntryPath: model.ParentPath(selected.FullPath),
+		Attr:      selected.Name,
+	})
 	return m
 }
 
@@ -148,7 +148,7 @@ func (m MainViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case refreshMsg:
 		m.leftPanel = updateLeft(m.leftPanel, refreshMsg{})
-		m.rightPanel = updateRight(m.rightPanel, refreshMsg{})
+		m = m.syncRightFromLeft()
 		return m, nil
 
 	case tickMsg:
