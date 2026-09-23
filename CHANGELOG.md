@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DeriveMasterKey` 的 `uint8(parallelism)` 隐式截断：改为显式校验参数
 - 参数超出本机内存时被 OOM kill：解析/派生/建库前按本机可用内存判断能力，不足返回 `ErrInsufficientMemory`
 - `zeroBytes` 对空切片 panic
+- 未知 Compression ID 被静默当作"无压缩"，格式扩展/文件损坏时会解出错乱数据：
+  压缩标识在 `NewHeader`/`UnmarshalHeader`/`Open`/`MarshalBinary` 均显式校验，未知值返回 `ErrUnsupportedCompression`
 - TUI 错误静默：`AppModel.err` 只赋值从不渲染，保存失败对用户完全不可见。`ErrorMsg` 现在统一投递到
   主视图状态栏（`[!] <错误>  [Ctrl+S] retry  [q] quit`，10 秒后自动清除），保存失败时保留 `[未保存]` 标记
 - TUI 复制假成功：忽略了 `clipboard.WriteAll` 的错误、无条件显示"已复制到剪贴板"，

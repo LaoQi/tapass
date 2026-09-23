@@ -75,7 +75,9 @@ vault 包不直接操作文件系统，所有 I/O 通过 `[]byte` 传递：
 - KDF 参数与密钥必须一致：`Vault` 记录派生上下文，`MarshalBinary` 在不一致时返回 `ErrKDFParamsChanged`
   （历史缺陷：直接改头部参数会让 vault 永久无法打开）
 - 修改 KDF 参数只能通过 `Rekey`（必须提供当前主密码，因为新密钥需按新参数重新派生）
-- 错误哨兵：`ErrInvalidKDFParams` / `ErrKDFParamsChanged` / `ErrInsufficientMemory` / `ErrWrongPassword`
+- 错误哨兵：`ErrInvalidKDFParams` / `ErrKDFParamsChanged` / `ErrInsufficientMemory` / `ErrWrongPassword` / `ErrUnsupportedCompression`
+- 压缩算法标识只允许 0（无压缩）/ 1（DEFLATE）：`NewHeader`、`UnmarshalHeader`、`Open`、`MarshalBinary` 均显式校验，
+  未知 ID 返回 `ErrUnsupportedCompression`（历史行为：静默当作未压缩 → 解析出错乱数据）
 - 压缩使用 flate 裸 DEFLATE 流（非 zlib），与设计文档 "zlib/DEFLATE" 描述不同，为本项目明确选择
 - MarshalBinary 每次调用重新生成 Nonce
 - SubKeys.Zero() 安全清零密钥

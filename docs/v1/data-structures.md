@@ -15,7 +15,7 @@
 | 64 | 4 | Time Cost | uint32 LE | Argon2id time_cost |
 | 68 | 4 | Memory Cost | uint32 LE | Argon2id memory_cost |
 | 72 | 4 | Parallelism | uint32 LE | Argon2id parallelism |
-| 76 | 1 | Compression ID | uint8 | 0=无压缩, 1=DEFLATE |
+| 76 | 1 | Compression ID | uint8 | 0=无压缩, 1=DEFLATE；其他值拒绝解析 |
 | 77 | 3 | Reserved | bytes | 保留，置零 |
 | 80 | 32 | Header MAC | bytes | `SHA256(header[0:80])` |
 | 112 | 32 | Header HMAC | bytes | `HMAC-SHA256(MAC, HMAC_Key)` |

@@ -95,13 +95,16 @@ func Open(data []byte, password string) (*Vault, error) {
 	}
 
 	var entryData []byte
-	if hdr.CompressionID == CompressionDEFLATE {
+	switch hdr.CompressionID {
+	case CompressionNone:
+		entryData = plaintext
+	case CompressionDEFLATE:
 		entryData, err = Decompress(plaintext)
 		if err != nil {
 			return nil, fmt.Errorf("decompress: %w", err)
 		}
-	} else {
-		entryData = plaintext
+	default:
+		return nil, fmt.Errorf("%w: %d", ErrUnsupportedCompression, hdr.CompressionID)
 	}
 
 	entries, err := ParseAll(entryData)
@@ -178,13 +181,16 @@ func (v *Vault) MarshalBinary() ([]byte, error) {
 
 	var compressed []byte
 	var err error
-	if v.Hdr.CompressionID == CompressionDEFLATE {
+	switch v.Hdr.CompressionID {
+	case CompressionNone:
+		compressed = data
+	case CompressionDEFLATE:
 		compressed, err = Compress(data)
 		if err != nil {
 			return nil, fmt.Errorf("compress: %w", err)
 		}
-	} else {
-		compressed = data
+	default:
+		return nil, fmt.Errorf("%w: %d", ErrUnsupportedCompression, v.Hdr.CompressionID)
 	}
 
 	if _, err := rand.Read(v.Hdr.Nonce[:]); err != nil {
@@ -250,13 +256,16 @@ func (v *Vault) Rekey(oldPassword, newPassword string, params Argon2Params) ([]b
 	}
 
 	var compressed []byte
-	if hdr.CompressionID == CompressionDEFLATE {
+	switch hdr.CompressionID {
+	case CompressionNone:
+		compressed = data
+	case CompressionDEFLATE:
 		compressed, err = Compress(data)
 		if err != nil {
 			return nil, fmt.Errorf("compress: %w", err)
 		}
-	} else {
-		compressed = data
+	default:
+		return nil, fmt.Errorf("%w: %d", ErrUnsupportedCompression, hdr.CompressionID)
 	}
 
 	ciphertext, err := Encrypt(subKeys.EncryptKey, hdr.Nonce[:], compressed)

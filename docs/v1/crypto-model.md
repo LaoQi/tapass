@@ -76,7 +76,9 @@ Master Key 通过 HKDF-SHA256 拆分为两路子密钥：
 ```
 
 - 压缩在加密之前执行（密文不可压缩）
-- Compression ID = 0 时跳过压缩/解压步骤
+- Compression ID = 0 时跳过压缩/解压步骤；= 1 时使用 DEFLATE
+- Compression ID 为其他值时**拒绝解析**（返回 unsupported compression id），
+  不得静默按"无压缩"处理（会解出错误的数据段内容）
 
 ## 加密方案
 

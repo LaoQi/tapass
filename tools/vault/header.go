@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
@@ -15,6 +16,19 @@ const (
 	CompressionNone    = 0
 	CompressionDEFLATE = 1
 )
+
+// ErrUnsupportedCompression 头部声明的压缩算法本实现不支持。
+var ErrUnsupportedCompression = errors.New("unsupported compression id")
+
+// ValidateCompressionID 校验压缩算法标识（V1 仅定义 0=无压缩、1=DEFLATE）。
+func ValidateCompressionID(id uint8) error {
+	switch id {
+	case CompressionNone, CompressionDEFLATE:
+		return nil
+	default:
+		return fmt.Errorf("%w: %d", ErrUnsupportedCompression, id)
+	}
+}
 
 type Argon2Params struct {
 	TimeCost    uint32
@@ -45,6 +59,9 @@ func NewHeader(password string, argon2Params Argon2Params, compressionID uint8) 
 		return nil, nil, err
 	}
 	if err := CheckArgon2Resource(argon2Params); err != nil {
+		return nil, nil, err
+	}
+	if err := ValidateCompressionID(compressionID); err != nil {
 		return nil, nil, err
 	}
 
@@ -164,6 +181,9 @@ func UnmarshalHeader(data []byte) (*Header, error) {
 
 	if err := binary.Read(r, binary.LittleEndian, &h.CompressionID); err != nil {
 		return nil, fmt.Errorf("read compression id: %w", err)
+	}
+	if err := ValidateCompressionID(h.CompressionID); err != nil {
+		return nil, err
 	}
 	if _, err := r.Read(h.Reserved[:]); err != nil {
 		return nil, fmt.Errorf("read reserved: %w", err)

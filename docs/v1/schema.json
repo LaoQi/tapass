@@ -67,7 +67,7 @@
             "0": "无压缩",
             "1": "DEFLATE (zlib)"
           },
-          "description": "压缩算法标识，uint8"
+          "description": "压缩算法标识，uint8；只允许 0/1，其他值实现必须拒绝解析"
         },
         "reserved": {
           "type": "string",
