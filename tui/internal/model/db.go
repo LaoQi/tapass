@@ -48,11 +48,19 @@ type QueryResult struct {
 	Entry Entry
 }
 
+// changeListener 带 id 的监听器：Go 无法比较函数值，退订需按 id 定位
+// （历史缺陷：用 `&l == &fn` 比较循环变量副本地址，退订永不生效）。
+type changeListener struct {
+	id int
+	fn Listener
+}
+
 type DB struct {
-	vault     *vault.Vault
-	listeners []Listener
-	dbPath    string
-	dirty     bool
+	vault          *vault.Vault
+	listeners      []changeListener
+	nextListenerID int
+	dbPath         string
+	dirty          bool
 }
 
 func newDB(v *vault.Vault, dbPath string) *DB {
@@ -187,13 +195,17 @@ func (db *DB) Rekey(oldPassword, newPassword string, a Argon2Params) ([]tea.Cmd,
 	return db.emit(Event{Type: EventConfigChanged}), nil
 }
 
+// OnChange 注册变更监听器，返回退订函数。退订幂等：重复调用无副作用。
 func (db *DB) OnChange(fn Listener) func() {
-	db.listeners = append(db.listeners, fn)
+	id := db.nextListenerID
+	db.nextListenerID++
+	db.listeners = append(db.listeners, changeListener{id: id, fn: fn})
+
 	return func() {
 		for i, l := range db.listeners {
-			if &l == &fn {
+			if l.id == id {
 				db.listeners = append(db.listeners[:i], db.listeners[i+1:]...)
-				break
+				return
 			}
 		}
 	}
@@ -201,8 +213,8 @@ func (db *DB) OnChange(fn Listener) func() {
 
 func (db *DB) emit(evt Event) []tea.Cmd {
 	var cmds []tea.Cmd
-	for _, fn := range db.listeners {
-		cmds = append(cmds, fn(evt)...)
+	for _, l := range db.listeners {
+		cmds = append(cmds, l.fn(evt)...)
 	}
 	return cmds
 }

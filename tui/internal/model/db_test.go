@@ -420,3 +420,45 @@ func TestOpenDBFileNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent file")
 	}
 }
+
+// 回归：OnChange 返回的退订函数必须真正移除监听器（此前比较循环变量地址，永不生效）。
+func TestOnChangeUnsubscribe(t *testing.T) {
+	db := newTestDB(map[string]vault.Entry{})
+
+	firstCalls := 0
+	secondCalls := 0
+
+	unsubscribe := db.OnChange(func(evt Event) []tea.Cmd {
+		firstCalls++
+		return nil
+	})
+	db.OnChange(func(evt Event) []tea.Cmd {
+		secondCalls++
+		return nil
+	})
+
+	db.Set("/k1", []byte("v"))
+	if firstCalls != 1 || secondCalls != 1 {
+		t.Fatalf("expected both listeners called once, got first=%d second=%d", firstCalls, secondCalls)
+	}
+
+	unsubscribe()
+
+	db.Set("/k2", []byte("v"))
+	if firstCalls != 1 {
+		t.Errorf("unsubscribed listener still called: %d", firstCalls)
+	}
+	if secondCalls != 2 {
+		t.Errorf("expected remaining listener called twice, got %d", secondCalls)
+	}
+
+	// 重复退订应幂等（不影响其它监听器）
+	unsubscribe()
+	db.Set("/k3", []byte("v"))
+	if secondCalls != 3 {
+		t.Errorf("expected remaining listener called 3 times, got %d", secondCalls)
+	}
+	if len(db.listeners) != 1 {
+		t.Errorf("expected 1 listener left, got %d", len(db.listeners))
+	}
+}

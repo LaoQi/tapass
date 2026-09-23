@@ -106,6 +106,8 @@ internal/
 - `?` 键打开帮助视图：切换到 StateHelp 窗口状态（非覆盖层），esc/?/q 返回主视图
 - 删除功能在右栏面板开放，左栏选中属性时也可按 d 进入；删除仅能对属性（完整 key）操作
 - 删除需二次确认：按 `d` 进入 detailConfirmDelete 状态，再按 `d`/`y` 确认，其他键取消
+- `DB.OnChange(fn)` 返回退订函数：监听器按自增 id 记录并移除（Go 无法比较函数值，
+  不能用函数相等判断），退订幂等；当前生产代码未注册监听器，仅测试使用
 - DB 不暴露 vault：删除 `Vault()`/`Header()` 方法，外部禁止直接调用 vault
 - DB 提供 `Config()`（只读）与 `Rekey(oldPassword, newPassword, Argon2Params)`（改 KDF 参数的唯一入口）
 - 已删除 `SetConfig`：只改头部参数而不重新派生会让 vault 永久无法打开；参数变更必须走 vault `Rekey`
